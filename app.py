@@ -34,7 +34,7 @@ def init():
  CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,password TEXT,name TEXT,active INTEGER DEFAULT 1);
  CREATE TABLE IF NOT EXISTS campaigns(id INTEGER PRIMARY KEY,name TEXT,title TEXT,prize TEXT,draw_at TEXT,terms TEXT,image TEXT DEFAULT '',active INTEGER DEFAULT 0,created_at TEXT);
  CREATE TABLE IF NOT EXISTS participants(id INTEGER PRIMARY KEY,campaign_id INTEGER,name TEXT,whatsapp TEXT,email TEXT,company TEXT,created_at TEXT,winner INTEGER DEFAULT 0,allow_again INTEGER DEFAULT 1,blocked INTEGER DEFAULT 0,UNIQUE(campaign_id,email));
- CREATE TABLE IF NOT EXISTS draws(id INTEGER PRIMARY KEY,campaign_id INTEGER,drawn_at TEXT,winner_ids TEXT,operator TEXT);
+ CREATE TABLE IF NOT EXISTS draws(id INTEGER PRIMARY KEY,campaign_id INTEGER,drawn_at TEXT,winner_ids TEXT,operator TEXT);\n CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY,user_id INTEGER,username TEXT,action TEXT,details TEXT,created_at TEXT);
  ''')
  if not c.execute('select 1 from campaigns limit 1').fetchone():
   c.execute('insert into campaigns(name,title,prize,terms,active,created_at) values(?,?,?,?,1,?)',('Campanha principal','Participe do nosso sorteio','Kit Neos + Brindes','Ao participar, você concorda com as regras da ação.',now()))
@@ -43,6 +43,11 @@ def init():
   c.execute('insert into users(username,password,name) values(?,?,?)',(user,generate_password_hash(pwd),'Administrador'))
   print(f'INITIAL_ADMIN_USER={user}',flush=True); print(f'INITIAL_ADMIN_PASSWORD={pwd}',flush=True)
  c.commit(); c.close()
+
+def audit(action,details='',conn=None):
+ own=conn is None; c=conn or db()
+ c.execute('insert into audit_logs(user_id,username,action,details,created_at) values(?,?,?,?,?)',(session.get('uid'),session.get('user','sistema'),action,details,now()))
+ if own: c.commit(); c.close()
 
 def camp():
  c=db(); r=c.execute('select * from campaigns where active=1 order by id desc limit 1').fetchone(); c.close(); return r
@@ -92,7 +97,7 @@ def sucesso(): return layout('Sucesso','<div class="wrap"><div class="card" styl
 def login():
  if request.method=='POST':
   c=db(); u=c.execute('select * from users where username=? and active=1',(request.form.get('username',''),)).fetchone(); c.close()
-  if u and check_password_hash(u['password'],request.form.get('password','')): session['uid']=u['id'];session['user']=u['username'];return redirect('/admin')
+  if u and check_password_hash(u['password'],request.form.get('password','')): session['uid']=u['id'];session['user']=u['username'];audit('LOGIN','Acesso ao painel administrativo');return redirect('/admin')
   flash('Usuário ou senha inválidos.')
  body='''<div class="login card"><div class="brand">Zanthus <b>| Neos</b></div><h1>Painel administrativo</h1><form method="post"><input class="input" name="username" placeholder="Usuário" required><input class="input" type="password" name="password" placeholder="Senha" required><button class="btn" style="width:100%">ENTRAR</button></form></div>'''; return layout('Login',body)
 @app.route('/admin/logout')
@@ -101,50 +106,53 @@ def logout(): session.clear(); return redirect('/')
 @app.route('/admin')
 @admin
 def painel():
- x=camp(); c=db(); ps=c.execute('select * from participants where campaign_id=? order by id desc',(x['id'],)).fetchall(); cs=c.execute('select * from campaigns order by id desc').fetchall(); ds=c.execute('select * from draws where campaign_id=? order by id desc limit 20',(x['id'],)).fetchall(); c.close()
+ x=camp(); c=db(); ps=c.execute('select * from participants where campaign_id=? order by id desc',(x['id'],)).fetchall(); cs=c.execute('select * from campaigns order by id desc').fetchall(); ds=c.execute('select * from draws where campaign_id=? order by id desc limit 20',(x['id'],)).fetchall(); us=c.execute('select id,username,name,active from users order by name,username').fetchall(); logs=c.execute('select * from audit_logs order by id desc limit 100').fetchall(); c.close()
  rows=''.join(f'''<tr><td>{p['name']}</td><td>{p['company']}</td><td>{'🏆' if p['winner'] else '—'}</td><td>{'Bloqueado' if p['blocked'] else ('Elegível' if not p['winner'] else 'Sorteado')}</td><td class="actions"><form method="post" action="/admin/p/{p['id']}/block"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Desbloquear' if p['blocked'] else 'Bloquear'}</button></form><form method="post" action="/admin/p/{p['id']}/again"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Não repetir' if p['allow_again'] else 'Pode repetir'}</button></form><form method="post" action="/admin/p/{p['id']}/reenter"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn a">Recolocar</button></form></td></tr>''' for p in ps)
  camps=''.join(f'<option value="{z["id"]}" {"selected" if z["active"] else ""}>{z["name"]}</option>' for z in cs)
  hist=''.join(f'<li>{d["drawn_at"]} — operador {d["operator"]}</li>' for d in ds) or '<li>Sem sorteios ainda.</li>'
- body=f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div><a href="/qr.png">QR Code</a> · <a href="/admin/export">CSV</a> · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid"><div class="card"><b>Participantes</b><div style="font-size:38px">{len(ps)}</div></div><div class="card"><b>Campanha ativa</b><div>{x['name']}</div></div><div class="card"><b>Prêmio</b><div>{x['prize']}</div></div></div><div class="card"><h2>Sorteio</h2><form method="post" action="/admin/draw"><input type="hidden" name="csrf" value="{csrf()}"><label>Quantidade de ganhadores</label><input class="input" type="number" min="1" max="20" value="1" name="count"><button class="btn a">🎲 SORTEAR AGORA</button></form><form method="post" action="/admin/reenter-all" style="margin-top:10px"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">↻ Recolocar ganhadores permitidos</button></form></div><div class="card"><h2>Participantes</h2><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Empresa</th><th>Ganhou</th><th>Status</th><th>Ações</th></tr>{rows}</table></div></div><div class="card"><h2>Campanhas</h2><form method="post" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><input class="input" name="draw_at" placeholder="Data/horário do sorteio"><textarea name="terms" placeholder="Termos"></textarea><input class="input" type="file" name="image" disabled><button class="btn">Criar campanha</button></form><p class="muted">Imagem do prêmio: use a edição da campanha abaixo.</p><form method="post" action="/admin/activate"><input type="hidden" name="csrf" value="{csrf()}"><select name="id">{camps}</select><button class="btn gray">Ativar selecionada</button></form><hr><form method="post" enctype="multipart/form-data" action="/admin/campaign/{x['id']}/image"><input type="hidden" name="csrf" value="{csrf()}"><label>Imagem do prêmio da campanha ativa</label><input class="input" type="file" name="image" accept="image/*" required><button class="btn">Enviar imagem</button></form></div><div class="card"><h2>Histórico</h2><ul>{hist}</ul></div></div>'''; return layout('Painel',body)
+ userrows=''.join(f'''<tr><td>{u["name"]}</td><td>{u["username"]}</td><td>{"Ativo" if u["active"] else "Inativo"}</td><td class="actions"><form method="post" action="/admin/user/{u['id']}/toggle"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{"Desativar" if u["active"] else "Ativar"}</button></form><form method="post" action="/admin/user/{u['id']}/password"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" style="width:150px;display:inline" type="password" name="password" placeholder="Nova senha" minlength="8" required><button class="btn gray">Trocar senha</button></form></td></tr>''' for u in us)
+ auditrows=''.join(f'<tr><td>{a["created_at"]}</td><td>{a["username"]}</td><td>{a["action"]}</td><td>{a["details"]}</td></tr>' for a in logs) or '<tr><td colspan="4">Sem alterações registradas.</td></tr>'
+ camprows=''.join(f'''<tr><td>{z["name"]}</td><td>{"Ativa" if z["active"] else "Inativa"}</td><td>{z["created_at"]}</td><td class="actions">{"<span class='pill'>Campanha ativa</span>" if z["active"] else f'<form method="post" action="/admin/campaign/{z["id"]}/delete" onsubmit="return confirm(\'Excluir esta campanha e seus participantes/histórico de sorteios?\')"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn red">Excluir</button></form>'}</td></tr>''' for z in cs)
+ body=f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div><a href="/qr.png">QR Code</a> · <a href="/admin/export">CSV</a> · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid"><div class="card"><b>Participantes</b><div style="font-size:38px">{len(ps)}</div></div><div class="card"><b>Campanha ativa</b><div>{x['name']}</div></div><div class="card"><b>Prêmio</b><div>{x['prize']}</div></div></div><div class="card"><h2>Sorteio</h2><form method="post" action="/admin/draw"><input type="hidden" name="csrf" value="{csrf()}"><label>Quantidade de ganhadores</label><input class="input" type="number" min="1" max="20" value="1" name="count"><button class="btn a">🎲 SORTEAR AGORA</button></form><form method="post" action="/admin/reenter-all" style="margin-top:10px"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">↻ Recolocar ganhadores permitidos</button></form></div><div class="card"><h2>Participantes</h2><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Empresa</th><th>Ganhou</th><th>Status</th><th>Ações</th></tr>{rows}</table></div></div><div class="card"><h2>Campanhas</h2><form method="post" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><input class="input" name="draw_at" placeholder="Data/horário do sorteio"><textarea name="terms" placeholder="Termos"></textarea><input class="input" type="file" name="image" disabled><button class="btn">Criar campanha</button></form><p class="muted">Imagem do prêmio: use a edição da campanha abaixo.</p><form method="post" action="/admin/activate"><input type="hidden" name="csrf" value="{csrf()}"><select name="id">{camps}</select><button class="btn gray">Ativar selecionada</button></form><hr><form method="post" enctype="multipart/form-data" action="/admin/campaign/{x['id']}/image"><input type="hidden" name="csrf" value="{csrf()}"><label>Imagem do prêmio da campanha ativa</label><input class="input" type="file" name="image" accept="image/*" required><button class="btn">Enviar imagem</button></form></div><div class="card"><h2>Campanhas cadastradas</h2><div style="overflow:auto"><table class="table"><tr><th>Campanha</th><th>Status</th><th>Criada em</th><th>Ações</th></tr>{camprows}</table></div></div><div class="card"><h2>Usuários do painel</h2><form method="post" action="/admin/user"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome" required><input class="input" name="username" placeholder="Usuário" required><input class="input" type="password" name="password" placeholder="Senha (mínimo 8 caracteres)" minlength="8" required><button class="btn">Criar usuário</button></form><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></div><div class="card"><h2>Histórico de sorteios</h2><ul>{hist}</ul></div><div class="card"><h2>Histórico de alterações</h2><p class="muted">Últimas 100 ações administrativas.</p><div style="overflow:auto"><table class="table"><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr>{auditrows}</table></div></div></div>'''; return layout('Painel',body)
 
 @app.post('/admin/campaign')
 @admin
 def newcamp():
  if not okcsrf(): return redirect('/admin')
- c=db(); c.execute('insert into campaigns(name,title,prize,draw_at,terms,created_at) values(?,?,?,?,?,?)',(request.form['name'],request.form['title'],request.form['prize'],request.form.get('draw_at',''),request.form.get('terms',''),now()));c.commit();c.close();flash('Campanha criada.');return redirect('/admin')
+ c=db(); c.execute('insert into campaigns(name,title,prize,draw_at,terms,created_at) values(?,?,?,?,?,?)',(request.form['name'],request.form['title'],request.form['prize'],request.form.get('draw_at',''),request.form.get('terms',''),now())); audit('CAMPANHA_CRIADA',request.form['name'],c);c.commit();c.close();flash('Campanha criada.');return redirect('/admin')
 @app.post('/admin/activate')
 @admin
 def activate():
  if not okcsrf(): return redirect('/admin')
- c=db();c.execute('update campaigns set active=0');c.execute('update campaigns set active=1 where id=?',(request.form['id'],));c.commit();c.close();return redirect('/admin')
+ c=db(); z=c.execute('select name from campaigns where id=?',(request.form['id'],)).fetchone();c.execute('update campaigns set active=0');c.execute('update campaigns set active=1 where id=?',(request.form['id'],));audit('CAMPANHA_ATIVADA',z['name'] if z else request.form['id'],c);c.commit();c.close();return redirect('/admin')
 @app.post('/admin/campaign/<int:i>/image')
 @admin
 def image(i):
  if not okcsrf(): return redirect('/admin')
- n=saveimg(request.files.get('image')); c=db(); c.execute('update campaigns set image=? where id=?',(n,i));c.commit();c.close();flash('Imagem atualizada.');return redirect('/admin')
+ n=saveimg(request.files.get('image')); c=db(); z=c.execute('select name from campaigns where id=?',(i,)).fetchone(); c.execute('update campaigns set image=? where id=?',(n,i));audit('IMAGEM_CAMPANHA_ATUALIZADA',z['name'] if z else str(i),c);c.commit();c.close();flash('Imagem atualizada.');return redirect('/admin')
 @app.post('/admin/p/<int:i>/block')
 @admin
 def block(i):
  if not okcsrf(): return redirect('/admin')
- c=db();c.execute('update participants set blocked=case blocked when 1 then 0 else 1 end where id=?',(i,));c.commit();c.close();return redirect('/admin')
+ c=db();p=c.execute('select name from participants where id=?',(i,)).fetchone();c.execute('update participants set blocked=case blocked when 1 then 0 else 1 end where id=?',(i,));audit('PARTICIPANTE_BLOQUEIO_ALTERADO',p['name'] if p else str(i),c);c.commit();c.close();return redirect('/admin')
 @app.post('/admin/p/<int:i>/again')
 @admin
 def again(i):
  if not okcsrf(): return redirect('/admin')
- c=db();c.execute('update participants set allow_again=case allow_again when 1 then 0 else 1 end where id=?',(i,));c.commit();c.close();return redirect('/admin')
+ c=db();p=c.execute('select name from participants where id=?',(i,)).fetchone();c.execute('update participants set allow_again=case allow_again when 1 then 0 else 1 end where id=?',(i,));audit('REENTRADA_ALTERADA',p['name'] if p else str(i),c);c.commit();c.close();return redirect('/admin')
 @app.post('/admin/p/<int:i>/reenter')
 @admin
 def reenter(i):
  if not okcsrf(): return redirect('/admin')
  c=db();p=c.execute('select * from participants where id=?',(i,)).fetchone()
- if p and p['allow_again'] and not p['blocked']: c.execute('update participants set winner=0 where id=?',(i,));c.commit();flash('Participante recolocado.')
+ if p and p['allow_again'] and not p['blocked']: c.execute('update participants set winner=0 where id=?',(i,));audit('PARTICIPANTE_RECOLOCADO',p['name'],c);c.commit();flash('Participante recolocado.')
  else: flash('Participante não pode voltar ao sorteio.')
  c.close();return redirect('/admin')
 @app.post('/admin/reenter-all')
 @admin
 def reall():
  if not okcsrf(): return redirect('/admin')
- x=camp();c=db();c.execute('update participants set winner=0 where campaign_id=? and allow_again=1 and blocked=0',(x['id'],));c.commit();c.close();flash('Ganhadores permitidos recolocados.');return redirect('/admin')
+ x=camp();c=db();c.execute('update participants set winner=0 where campaign_id=? and allow_again=1 and blocked=0',(x['id'],));audit('GANHADORES_RECOLOCADOS',x['name'],c);c.commit();c.close();flash('Ganhadores permitidos recolocados.');return redirect('/admin')
 
 @app.post('/admin/draw')
 @admin
@@ -154,7 +162,7 @@ def draw():
  if len(pool)<n: c.close();flash('Participantes elegíveis insuficientes.');return redirect('/admin')
  ws=random.SystemRandom().sample(pool,n); ids=[w['id'] for w in ws]
  for i in ids:c.execute('update participants set winner=1 where id=?',(i,))
- c.execute('insert into draws(campaign_id,drawn_at,winner_ids,operator) values(?,?,?,?)',(x['id'],now(),json.dumps(ids),session['user']));c.commit();c.close(); return redirect('/admin/draw-screen?ids='+','.join(map(str,ids)))
+ c.execute('insert into draws(campaign_id,drawn_at,winner_ids,operator) values(?,?,?,?)',(x['id'],now(),json.dumps(ids),session['user']));audit('SORTEIO_REALIZADO',f'{x["name"]}: {len(ids)} ganhador(es)',c);c.commit();c.close(); return redirect('/admin/draw-screen?ids='+','.join(map(str,ids)))
 @app.route('/admin/draw-screen')
 @admin
 def screen():
