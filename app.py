@@ -132,6 +132,42 @@ def painel():
  camprows=''.join(f'''<tr><td>{z["name"]}</td><td>{"Ativa" if z["active"] else "Inativa"}</td><td>{z["created_at"]}</td><td class="actions">{"<span class='pill'>Campanha ativa</span>" if z["active"] else f'<form method="post" action="/admin/campaign/{z["id"]}/delete" onsubmit="return confirm(\'Excluir esta campanha e seus participantes/histórico de sorteios?\')"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn red">Excluir</button></form>'}</td></tr>''' for z in cs)
  body=f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div><a href="/qr.png">QR Code</a> · <a href="/admin/export">CSV</a> · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid"><div class="card"><b>Participantes</b><div style="font-size:38px">{len(ps)}</div></div><div class="card"><b>Campanha ativa</b><div>{x['name']}</div></div><div class="card"><b>Prêmio</b><div>{x['prize']}</div></div></div><div class="card"><h2>Sorteio</h2><form method="post" action="/admin/draw"><input type="hidden" name="csrf" value="{csrf()}"><label>Quantidade de ganhadores</label><input class="input" type="number" min="1" max="20" value="1" name="count"><button class="btn a">🎲 SORTEAR AGORA</button></form><form method="post" action="/admin/reenter-all" style="margin-top:10px"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">↻ Recolocar ganhadores permitidos</button></form></div><div class="card"><h2>Participantes</h2><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Empresa</th><th>Ganhou</th><th>Status</th><th>Ações</th></tr>{rows}</table></div></div><div class="card"><h2>Campanhas</h2><form method="post" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><input class="input" name="draw_at" placeholder="Data/horário do sorteio"><textarea name="terms" placeholder="Termos"></textarea><input class="input" type="file" name="image" disabled><button class="btn">Criar campanha</button></form><p class="muted">Imagem do prêmio: use a edição da campanha abaixo.</p><form method="post" action="/admin/activate"><input type="hidden" name="csrf" value="{csrf()}"><select name="id">{camps}</select><button class="btn gray">Ativar selecionada</button></form><hr><form method="post" enctype="multipart/form-data" action="/admin/campaign/{x['id']}/image"><input type="hidden" name="csrf" value="{csrf()}"><label>Imagem do prêmio da campanha ativa</label><input class="input" type="file" name="image" accept="image/*" required><button class="btn">Enviar imagem</button></form></div><div class="card"><h2>Campanhas cadastradas</h2><div style="overflow:auto"><table class="table"><tr><th>Campanha</th><th>Status</th><th>Criada em</th><th>Ações</th></tr>{camprows}</table></div></div><div class="card"><h2>Usuários do painel</h2><form method="post" action="/admin/user"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome" required><input class="input" name="username" placeholder="Usuário" required><input class="input" type="password" name="password" placeholder="Senha temporária (mínimo 8 caracteres)" minlength="8" required><label style="display:block;margin:5px 0 15px"><input type="checkbox" name="force_password_change" checked> Exigir que o usuário escolha uma nova senha no primeiro acesso</label><button class="btn">Criar usuário</button></form><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></div><div class="card"><h2>Histórico de sorteios</h2><ul>{hist}</ul></div><div class="card"><h2>Histórico de alterações</h2><p class="muted">Últimas 100 ações administrativas.</p><div style="overflow:auto"><table class="table"><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr>{auditrows}</table></div></div></div>'''; return layout('Painel',body)
 
+@app.post('/admin/user')
+@admin
+def newuser():
+ if not okcsrf(): return redirect('/admin')
+ name=request.form.get('name','').strip(); username=request.form.get('username','').strip(); password=request.form.get('password',''); force=1 if request.form.get('force_password_change') else 0
+ if not name or not username or len(password)<8: flash('Preencha nome, usuário e uma senha de pelo menos 8 caracteres.'); return redirect('/admin')
+ c=db()
+ try:
+  c.execute('insert into users(username,password,name,active,force_password_change) values(?,?,?,?,?)',(username,generate_password_hash(password),name,1,force))
+  audit('USUARIO_CRIADO',f'{name} ({username})',c); c.commit(); flash('Usuário criado com sucesso.')
+ except sqlite3.IntegrityError:
+  flash('Esse nome de usuário já existe.')
+ finally: c.close()
+ return redirect('/admin')
+
+@app.post('/admin/user/<int:uid>/toggle')
+@admin
+def toggleuser(uid):
+ if not okcsrf(): return redirect('/admin')
+ if uid==session.get('uid'): flash('Você não pode desativar seu próprio usuário.'); return redirect('/admin')
+ c=db();u=c.execute('select * from users where id=?',(uid,)).fetchone()
+ if u:
+  new=0 if u['active'] else 1;c.execute('update users set active=? where id=?',(new,uid));audit('USUARIO_STATUS_ALTERADO',f"{u['username']} -> {'ativo' if new else 'inativo'}",c);c.commit()
+ c.close();return redirect('/admin')
+
+@app.post('/admin/user/<int:uid>/password')
+@admin
+def resetuserpassword(uid):
+ if not okcsrf(): return redirect('/admin')
+ password=request.form.get('password','')
+ if len(password)<8: flash('A senha deve ter pelo menos 8 caracteres.'); return redirect('/admin')
+ c=db();u=c.execute('select * from users where id=?',(uid,)).fetchone()
+ if u:
+  c.execute('update users set password=?,force_password_change=1 where id=?',(generate_password_hash(password),uid));audit('SENHA_TEMPORARIA_REDEFINIDA',u['username'],c);c.commit();flash('Senha temporária definida. O usuário deverá trocá-la no próximo login.')
+ c.close();return redirect('/admin')
+
 @app.post('/admin/campaign')
 @admin
 def newcamp():
