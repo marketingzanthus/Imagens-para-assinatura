@@ -99,7 +99,7 @@ def login():
   c=db(); u=c.execute('select * from users where username=? and active=1',(request.form.get('username',''),)).fetchone(); c.close()
   if u and check_password_hash(u['password'],request.form.get('password','')):
    session['uid']=u['id'];session['user']=u['username'];audit('LOGIN','Acesso ao painel administrativo')
-   if u['force_password_change']: session['must_change_password']=1; return redirect('/admin/minha-senha')
+   if ('force_password_change' in u.keys()) and u['force_password_change']: session['must_change_password']=1; return redirect('/admin/minha-senha')
    return redirect('/admin')
   flash('Usuário ou senha inválidos.')
  body='''<div class="login card"><div class="brand">Zanthus <b>| Neos</b></div><h1>Painel administrativo</h1><form method="post"><input class="input" name="username" placeholder="Usuário" required><input class="input" type="password" name="password" placeholder="Senha" required><button class="btn" style="width:100%">ENTRAR</button></form></div>'''; return layout('Login',body)
