@@ -42,6 +42,9 @@ def init():
   user=os.getenv('ADMIN_USER','admin'); pwd=os.getenv('ADMIN_PASSWORD') or secrets.token_urlsafe(10)
   c.execute('insert into users(username,password,name) values(?,?,?)',(user,generate_password_hash(pwd),'Administrador'))
   print(f'INITIAL_ADMIN_USER={user}',flush=True); print(f'INITIAL_ADMIN_PASSWORD={pwd}',flush=True)
+ cols=[r['name'] for r in c.execute('pragma table_info(users)').fetchall()]
+ if 'force_password_change' not in cols:
+  c.execute('alter table users add column force_password_change INTEGER DEFAULT 0')
  c.commit(); c.close()
 
 def audit(action,details='',conn=None):
@@ -103,6 +106,17 @@ def login():
    return redirect('/admin')
   flash('Usuário ou senha inválidos.')
  body='''<div class="login card"><div class="brand">Zanthus <b>| Neos</b></div><h1>Painel administrativo</h1><form method="post"><input class="input" name="username" placeholder="Usuário" required><input class="input" type="password" name="password" placeholder="Senha" required><button class="btn" style="width:100%">ENTRAR</button></form></div>'''; return layout('Login',body)
+@app.route('/admin/minha-senha',methods=['GET','POST'])
+@admin
+def mypassword():
+ if request.method=='POST':
+  if not okcsrf(): flash('Sessão expirada.'); return redirect('/admin/minha-senha')
+  p=request.form.get('password',''); p2=request.form.get('password2','')
+  if len(p)<8: flash('A senha deve ter pelo menos 8 caracteres.'); return redirect('/admin/minha-senha')
+  if p!=p2: flash('As senhas não conferem.'); return redirect('/admin/minha-senha')
+  c=db();c.execute('update users set password=?,force_password_change=0 where id=?',(generate_password_hash(p),session['uid']));audit('SENHA_PROPRIA_DEFINIDA','Usuário definiu sua senha pessoal',c);c.commit();c.close();session.pop('must_change_password',None);flash('Senha definida com sucesso.');return redirect('/admin')
+ body=f'''<div class="login card"><div class="brand">Zanthus <b>| Neos</b></div><h1>Defina sua senha</h1><form method="post"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" type="password" name="password" placeholder="Nova senha" minlength="8" required><input class="input" type="password" name="password2" placeholder="Confirme a nova senha" minlength="8" required><button class="btn" style="width:100%">SALVAR MINHA SENHA</button></form></div>''';return layout('Definir senha',body)
+
 @app.route('/admin/logout')
 def logout(): session.clear(); return redirect('/')
 
