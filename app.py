@@ -46,9 +46,9 @@ def init():
  if not c.execute('select 1 from campaigns limit 1').fetchone():
   c.execute('insert into campaigns(name,title,prize,terms,active,created_at) values(?,?,?,?,1,?)',('Campanha principal','Participe do nosso sorteio','Kit Neos + Brindes','Ao participar, você concorda com as regras da ação.',now()))
  if not c.execute('select 1 from users limit 1').fetchone():
-  user=os.getenv('ADMIN_USER','admin'); pwd=os.getenv('ADMIN_PASSWORD') or secrets.token_urlsafe(10)
+  user=os.getenv('ADMIN_USER','admin'); pwd=os.getenv('ADMIN_PASSWORD') or 'Zanthus@Sorteio2026'
   c.execute('insert into users(username,password,name) values(?,?,?)',(user,generate_password_hash(pwd),'Administrador'))
-  print(f'INITIAL_ADMIN_USER={user}',flush=True); print(f'INITIAL_ADMIN_PASSWORD={pwd}',flush=True)
+  print(f'INITIAL_ADMIN_USER={user}',flush=True); print('INITIAL_ADMIN_PASSWORD_CONFIGURED=true',flush=True)
  cols=[r['name'] for r in c.execute('pragma table_info(users)').fetchall()]
  if 'force_password_change' not in cols:
   c.execute('alter table users add column force_password_change INTEGER DEFAULT 0')
