@@ -127,7 +127,7 @@ def cadastro(cid):
  return layout('Cadastro',body)
 
 @app.route('/sucesso/<int:cid>')
-def sucesso(cid): return layout('Sucesso',f'<div class="wrap"><div class="card" style="text-align:center"><h1>✅ Cadastro realizado!</h1><p>Você já está participando. Boa sorte!</p><a class="btn" href="/cadastro/{cid}">Voltar</a></div></div>')
+def sucesso(cid): return layout('Sucesso',f'<div class="wrap"><div class="card" style="text-align:center"><h1 style="font-size:clamp(24px,5vw,28px);line-height:1.25">✅ Cadastro realizado!</h1><p>Você já está participando do nosso Sorteio do Zanthus Experience. Boa Sorte!</p><a class="btn" href="/cadastro/{cid}">Voltar</a><img src="/static/patrocinadores.png" alt="Patrocinadores: Laurenti, Elgin, Custom Brasil, Super Troco e Fiserv" width="435" height="163" style="display:block;max-width:100%;height:auto;margin:24px auto 0"></div></div>')
 
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
