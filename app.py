@@ -1,4 +1,6 @@
 import os, io, csv, json, random, secrets, sqlite3
+from database import connect, create_schema, insert_campaign, IntegrityError, DATABASE_URL
+import media_storage
 from openpyxl import Workbook
 from openpyxl.styles import Font
 from datetime import datetime
@@ -18,8 +20,16 @@ app.secret_key=os.getenv('SECRET_KEY',secrets.token_hex(32))
 app.config.update(MAX_CONTENT_LENGTH=8*1024*1024,SESSION_COOKIE_HTTPONLY=True,SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=True)
 ALLOWED={'png','jpg','jpeg','webp','gif'}
 
+@app.before_request
+def require_durable_uploads():
+ if os.getenv('RENDER')=='true' and not media_storage.BUCKET and request.method=='POST':
+  file=request.files.get('image')
+  if file and file.filename:
+   flash('O armazenamento permanente de imagens ainda precisa ser configurado. Envie a campanha sem imagem por enquanto.')
+   return redirect('/admin')
+
 def db():
- c=sqlite3.connect(DB); c.row_factory=sqlite3.Row; return c
+ return connect(DB)
 
 def now(): return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 def csrf():
@@ -39,24 +49,14 @@ def admin_only(fn):
  return w
 
 def init():
- c=db(); c.executescript('''
- CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,username TEXT UNIQUE,password TEXT,name TEXT,active INTEGER DEFAULT 1);
- CREATE TABLE IF NOT EXISTS campaigns(id INTEGER PRIMARY KEY,name TEXT,title TEXT,prize TEXT,draw_at TEXT,terms TEXT,image TEXT DEFAULT '',active INTEGER DEFAULT 0,created_at TEXT);
- CREATE TABLE IF NOT EXISTS participants(id INTEGER PRIMARY KEY,campaign_id INTEGER,name TEXT,whatsapp TEXT,email TEXT,company TEXT,created_at TEXT,winner INTEGER DEFAULT 0,allow_again INTEGER DEFAULT 1,blocked INTEGER DEFAULT 0,UNIQUE(campaign_id,email));
- CREATE TABLE IF NOT EXISTS draws(id INTEGER PRIMARY KEY,campaign_id INTEGER,drawn_at TEXT,winner_ids TEXT,operator TEXT);\n CREATE TABLE IF NOT EXISTS audit_logs(id INTEGER PRIMARY KEY,user_id INTEGER,username TEXT,action TEXT,details TEXT,created_at TEXT);
- ''')
- if not c.execute('select 1 from campaigns limit 1').fetchone():
+ c=db(); create_schema(c)
+ if not DATABASE_URL and not c.execute('select 1 from campaigns limit 1').fetchone():
   c.execute('insert into campaigns(name,title,prize,terms,active,created_at) values(?,?,?,?,1,?)',('Campanha principal','Participe do nosso sorteio','Kit Neos + Brindes','Ao participar, você concorda com as regras da ação.',now()))
  if not c.execute('select 1 from users limit 1').fetchone():
-  user=os.getenv('ADMIN_USER','admin'); pwd=os.getenv('ADMIN_PASSWORD') or 'Zanthus@Sorteio2026'
-  c.execute('insert into users(username,password,name) values(?,?,?)',(user,generate_password_hash(pwd),'Administrador'))
+  user=os.getenv('ADMIN_USER','admin'); pwd=os.getenv('ADMIN_PASSWORD')
+  if not pwd: c.close(); raise RuntimeError('ADMIN_PASSWORD obrigatória para inicializar administrador.')
+  c.execute('insert into users(username,password,name,role) values(?,?,?,?)',(user,generate_password_hash(pwd),'Administrador','admin'))
   print(f'INITIAL_ADMIN_USER={user}',flush=True); print('INITIAL_ADMIN_PASSWORD_CONFIGURED=true',flush=True)
- cols=[r['name'] for r in c.execute('pragma table_info(users)').fetchall()]
- if 'force_password_change' not in cols:
-  c.execute('alter table users add column force_password_change INTEGER DEFAULT 0')
- if 'role' not in cols:
-  c.execute("alter table users add column role TEXT DEFAULT 'user'")
- c.execute("update users set role='admin' where username='admin'")
  c.commit(); c.close()
 
 def audit(action,details='',conn=None):
@@ -75,7 +75,7 @@ def saveimg(f):
  if not f or not f.filename: return ''
  n=secure_filename(f.filename); ext=n.rsplit('.',1)[-1].lower() if '.' in n else ''
  if ext not in ALLOWED: return ''
- n=f'{datetime.now().strftime("%Y%m%d%H%M%S")}_{secrets.token_hex(3)}.{ext}'; f.save(os.path.join(UPLOAD,n)); return n
+ n=f'{datetime.now().strftime("%Y%m%d%H%M%S")}_{secrets.token_hex(3)}.{ext}'; media_storage.save(f,n,UPLOAD); return n
 
 CSS='''
 :root{--p:#172554;--a:#14b8a6;--bg:#f6f8fb;--tx:#172033}*{box-sizing:border-box}body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--tx)}a{text-decoration:none}.wrap{max-width:1180px;margin:auto;padding:28px}.brand{font-size:25px;font-weight:800;color:var(--p)}.brand b{color:var(--a)}.hero{background:linear-gradient(135deg,#0f1f4b,#18366f);color:#fff;border-radius:26px;padding:48px;display:grid;grid-template-columns:1.4fr 1fr;gap:28px;align-items:center}.hero h1{font-size:48px;margin:12px 0}.btn{display:inline-block;border:0;border-radius:12px;padding:13px 18px;font-weight:750;cursor:pointer;background:var(--p);color:white}.btn.a{background:var(--a);color:#042f2e}.btn.red{background:#b91c1c}.btn.gray{background:#e5e7eb;color:#111827}.card{background:white;border:1px solid #e5e7eb;border-radius:18px;padding:22px;margin:16px 0;box-shadow:0 7px 24px #0f172a0a}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.input,textarea,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;margin:6px 0 13px;background:white}.prizeimg{max-width:100%;max-height:330px;border-radius:18px;object-fit:contain;background:white}.top{display:flex;justify-content:space-between;align-items:center;gap:15px}.muted{color:#64748b}.flash{padding:12px;background:#ecfeff;border:1px solid #99f6e4;border-radius:10px;margin:10px 0}.table{width:100%;border-collapse:collapse;font-size:14px}.table th,.table td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left}.pill{padding:4px 8px;border-radius:999px;background:#eef2ff}.actions form{display:inline-block;margin:2px}.winner{font-size:56px;font-weight:900;text-align:center;color:var(--p);padding:40px}.login{max-width:430px;margin:70px auto}.qr{max-width:220px}.sectiontitle{margin-top:34px}@media(max-width:800px){.hero,.grid{grid-template-columns:1fr}.hero h1{font-size:36px}.wrap{padding:16px}.table{font-size:12px}}
@@ -87,9 +87,16 @@ def layout(title,body):
  return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>{CSS}</style></head><body>{msgs}{body}</body></html>'''
 
 @app.route('/health')
-def health(): return {'ok':True}
+def health():
+ try:
+  c=db()
+  try: c.execute('select 1 from campaigns limit 1').fetchone()
+  finally: c.close()
+  return {'ok':True,'database':'postgresql' if DATABASE_URL else 'sqlite','images_durable':bool(media_storage.BUCKET)}
+ except Exception:
+  return {'ok':False},503
 @app.route('/uploads/<path:n>')
-def up(n): return send_from_directory(UPLOAD,n)
+def up(n): return media_storage.serve(n,UPLOAD)
 
 @app.route('/')
 def home():
@@ -112,7 +119,7 @@ def cadastro(cid):
   if not all(vals) or not request.form.get('consent'): flash('Preencha todos os campos.'); return redirect(f'/cadastro/{cid}')
   c=db()
   try: c.execute('insert into participants(campaign_id,name,whatsapp,email,company,created_at) values(?,?,?,?,?,?)',(cid,vals[0],vals[1],vals[2].lower(),vals[3],now()));c.commit()
-  except sqlite3.IntegrityError: c.close();flash('Este e-mail já está cadastrado nesta campanha.');return redirect(f'/cadastro/{cid}')
+  except IntegrityError: c.close();flash('Este e-mail já está cadastrado nesta campanha.');return redirect(f'/cadastro/{cid}')
   c.close();return redirect(f'/sucesso/{cid}')
  img=f'<img class="prizeimg" src="/uploads/{x["image"]}">' if x['image'] else ''
  body=f'''<div class="raffle-stage register-stage"><div class="particles"></div><div class="register-shell"><div class="raffle-brand">ZANTHUS <span>| NEOS</span></div><div class="register-grid"><section class="prize-show"><div class="raffle-label">SORTEIO ESPECIAL</div><h1>{x["title"]}</h1>{img}<div class="prize-caption">VOCÊ PODE GANHAR</div><h2>{x["prize"]}</h2></section><section class="register-card"><div class="raffle-label">PARTICIPE AGORA</div><h2>Faça seu cadastro</h2><p>Preencha seus dados e boa sorte!</p><form method="post"><input type="hidden" name="csrf" value="{csrf()}"><label>Nome</label><input class="input" name="name" required><label>WhatsApp</label><input class="input" type="tel" name="whatsapp" id="whatsapp" inputmode="numeric" autocomplete="tel" maxlength="15" placeholder="(11) 99999-9999" required oninput="var v=this.value.replace(/[^0-9]/g,'').slice(0,11);if(v.length>7)this.value='('+v.slice(0,2)+') '+v.slice(2,7)+'-'+v.slice(7);else if(v.length>2)this.value='('+v.slice(0,2)+') '+v.slice(2);else if(v.length)this.value='('+v;else this.value='';" onblur="var v=this.value.replace(/[^0-9]/g,'');this.setCustomValidity(v.length===11?'':'Digite um celular com DDD e 11 números. Ex.: (11) 99999-9999');"><label>E-mail</label><input class="input" type="email" name="email" required><label>Empresa</label><input class="input" name="company" required><label class="terms"><input type="checkbox" name="consent" required> {x["terms"]}</label><button class="raffle-button">QUERO PARTICIPAR</button></form></section></div></div></div>'''
@@ -177,7 +184,7 @@ def newuser():
  try:
   c.execute('insert into users(username,password,name,active,force_password_change,role) values(?,?,?,?,?,?)',(username,generate_password_hash(password),name,1,force,role))
   audit('USUARIO_CRIADO',f'{name} ({username})',c); c.commit(); flash('Usuário criado com sucesso.')
- except sqlite3.IntegrityError:
+ except IntegrityError:
   flash('Esse nome de usuário já existe.')
  finally: c.close()
  return redirect('/admin')
@@ -207,7 +214,7 @@ def resetuserpassword(uid):
 @admin
 def newcamp():
  if not okcsrf(): return redirect('/admin')
- n=saveimg(request.files.get('image')); active=1 if request.form.get('active') else 0; c=db(); c.execute('insert into campaigns(name,title,prize,terms,image,active,created_at) values(?,?,?,?,?,?,?)',(request.form['name'],request.form['title'],request.form['prize'],request.form.get('terms',''),n,active,now())); cid=c.execute('select last_insert_rowid()').fetchone()[0]; audit('CAMPANHA_CRIADA',request.form['name'],c);c.commit();c.close();flash('Campanha criada.');return redirect(f'/admin?cid={cid}')
+ n=saveimg(request.files.get('image')); active=1 if request.form.get('active') else 0; c=db(); cid=insert_campaign(c,(request.form['name'],request.form['title'],request.form['prize'],request.form.get('terms',''),n,active,now())); audit('CAMPANHA_CRIADA',request.form['name'],c);c.commit();c.close();flash('Campanha criada.');return redirect(f'/admin?cid={cid}')
 @app.post('/admin/campaign/<int:i>/toggle')
 @admin
 def toggle_campaign(i):
