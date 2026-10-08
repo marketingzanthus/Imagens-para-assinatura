@@ -166,7 +166,10 @@ def painel():
   useradmin=(f'''<div class="card"><h2>Usuários do painel</h2><p class="muted">Crie uma campanha para liberar a operação do sorteio.</p><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></div>''' if session.get('role')=='admin' else '')
   create=f'''<div class="card"><h2>Nova campanha</h2><form method="post" enctype="multipart/form-data" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><textarea name="terms" placeholder="Termos"></textarea><label>Imagem do prêmio</label><input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"><label><input type="checkbox" name="active" checked> Criar campanha ativa</label><br><br><button class="btn">Criar campanha</button></form></div>'''
   return layout('Admin',f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div>Olá, {session.get("user")} · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid">{create}{useradmin}</div></div>''')
- rows=''.join(f'''<tr><td>{p['name']}</td><td>{p['company']}</td><td>{'🏆' if p['winner'] else '—'}</td><td>{'Bloqueado' if p['blocked'] else ('Elegível' if not p['winner'] else 'Sorteado')}</td><td class="actions"><form method="post" action="/admin/p/{p['id']}/block"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Desbloquear' if p['blocked'] else 'Bloquear'}</button></form><form method="post" action="/admin/p/{p['id']}/again"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Não repetir' if p['allow_again'] else 'Pode repetir'}</button></form><form method="post" action="/admin/p/{p['id']}/reenter"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn a">Recolocar</button></form></td></tr>''' for p in ps)
+ def delete_participant_form(p):
+  if session.get('role')!='admin': return ''
+  return f'''<form method="post" action="/admin/p/{p['id']}/delete" onsubmit="return confirm('Excluir este participante? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf" value="{csrf()}"><input type="hidden" name="cid" value="{x['id']}"><button class="btn red">Excluir</button></form>'''
+ rows=''.join(f'''<tr><td>{p['name']}</td><td>{p['company']}</td><td>{'🏆' if p['winner'] else '—'}</td><td>{'Bloqueado' if p['blocked'] else ('Elegível' if not p['winner'] else 'Sorteado')}</td><td class="actions"><form method="post" action="/admin/p/{p['id']}/block"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Desbloquear' if p['blocked'] else 'Bloquear'}</button></form><form method="post" action="/admin/p/{p['id']}/again"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Não repetir' if p['allow_again'] else 'Pode repetir'}</button></form><form method="post" action="/admin/p/{p['id']}/reenter"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn a">Recolocar</button></form>{delete_participant_form(p)}</td></tr>''' for p in ps)
  camps=''.join(f'<option value="{z["id"]}" {"selected" if z["active"] else ""}>{z["name"]}</option>' for z in cs)
  hist=''.join(f'<li>{d["drawn_at"]} — operador {d["operator"]}</li>' for d in ds) or '<li>Sem sorteios ainda.</li>'
  userrows=''.join(f'''<tr><td>{u["name"]}</td><td>{u["username"]}</td><td>{"Administrador" if u["role"]=="admin" else "Usuário"}</td><td>{("Troca de senha pendente" if u["force_password_change"] else "Ativo") if u["active"] else "Inativo"}</td><td class="actions"><form method="post" action="/admin/user/{u['id']}/toggle"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{"Desativar" if u["active"] else "Ativar"}</button></form><form method="post" action="/admin/user/{u['id']}/password"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" style="width:150px;display:inline" type="password" name="password" placeholder="Nova senha" minlength="8" required><button class="btn gray">Trocar senha</button></form></td></tr>''' for u in us)
@@ -252,6 +255,28 @@ def toggle_campaign(i):
 def image(i):
  if not okcsrf(): return redirect('/admin')
  n=saveimg(request.files.get('image')); c=db(); z=c.execute('select name from campaigns where id=?',(i,)).fetchone(); c.execute('update campaigns set image=? where id=?',(n,i));audit('IMAGEM_CAMPANHA_ATUALIZADA',z['name'] if z else str(i),c);c.commit();c.close();flash('Imagem atualizada.');return redirect(f'/admin?cid={i}')
+@app.post('/admin/p/<int:i>/delete')
+@admin_only
+def delete_participant(i):
+ cid=request.form.get('cid',type=int)
+ target=f'/admin?cid={cid}' if cid else '/admin'
+ if not session.get('csrf') or not okcsrf():
+  flash('Sessão expirada. Atualize a página e tente novamente.'); return redirect(target)
+ c=db()
+ try:
+  p=c.execute('select * from participants where id=? and campaign_id=?',(i,cid)).fetchone()
+  if not p:
+   flash('Participante não encontrado nesta campanha.'); return redirect(target)
+  draws=c.execute('select winner_ids from draws where campaign_id=?',(cid,)).fetchall()
+  if p['winner'] or any(i in json.loads(d['winner_ids'] or '[]') for d in draws):
+   flash('Este participante consta no histórico de ganhadores. Use Bloquear para impedir novos sorteios sem perder o histórico.'); return redirect(target)
+  c.execute('delete from participants where id=? and campaign_id=?',(i,cid))
+  audit('PARTICIPANTE_EXCLUIDO',f"Campanha {cid}: participante {i} ({p['name']})",c)
+  c.commit(); flash('Participante excluído.')
+ finally:
+  c.close()
+ return redirect(target)
+
 @app.post('/admin/p/<int:i>/block')
 @admin
 def block(i):
