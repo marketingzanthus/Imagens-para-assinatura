@@ -127,7 +127,7 @@ def cadastro(cid):
  return layout('Cadastro',body)
 
 @app.route('/sucesso/<int:cid>')
-def sucesso(cid): return layout('Sucesso',f'<div class="wrap"><div class="card" style="text-align:center"><h1 style="font-size:clamp(24px,5vw,28px);line-height:1.25">✅ Cadastro realizado!</h1><p>Você já está participando do nosso Sorteio do Zanthus Experience. Boa Sorte!</p><a class="btn" href="/cadastro/{cid}">Voltar</a><img src="/static/patrocinadores-hd.png" alt="Patrocinadores: Laurenti, Elgin, Custom Brasil, Super Troco e Fiserv" width="435" height="187" style="display:block;max-width:100%;height:auto;margin:24px auto 0"></div></div>')
+def sucesso(cid): return layout('Sucesso',f'<div class="wrap"><div class="card" style="text-align:center"><h1 style="font-size:clamp(24px,5vw,28px);line-height:1.25">✅ Cadastro realizado!</h1><p>Você já esta participando do nosso Sorteio.<br><span style="display:block;margin-top:8px">Boa Sorte!</span></p><a class="btn" href="/cadastro/{cid}">Voltar</a><div style="max-width:435px;margin:24px auto 0"><h2 style="font-size:22px;font-weight:400;margin:0 0 8px">Patrocinadores</h2><div style="position:relative;overflow:hidden;aspect-ratio:984/292"><img src="/static/patrocinadores-hd.png" alt="Laurenti, Elgin, Custom Brasil, Super Troco e Fiserv" width="984" height="422" style="display:block;width:100%;height:auto;position:absolute;top:0;transform:translateY(-30.8057%)"></div></div></div></div>')
 
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
