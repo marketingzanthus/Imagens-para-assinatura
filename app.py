@@ -334,7 +334,7 @@ def admin_navigation(body):
   var link=event.target.closest('a');
   if(link&&nav.contains(link))collapseMobileMenu();
  });
- if(location.hash)collapseMobileMenu();
+ collapseMobileMenu();
 })();</script>'''
  return style+'<div class="admin-layout">'+menu+body+qr_popup+'</div>'+script
 
