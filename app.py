@@ -293,6 +293,33 @@ def admin_navigation(body):
  window.addEventListener('scroll',function(event){if(event.target instanceof Element&&event.target.closest('.toolbar-dropdown'))return;closeMenus();},true);
  if(window.visualViewport)window.visualViewport.addEventListener('resize',function(){menus.forEach(positionMenu);});
 })();</script>'''
+ style+='''<style>
+@media(max-width:600px){
+ .admin-layout>.wrap{padding:10px}
+ .admin-layout .card{padding:14px;margin:12px 0}
+ .admin-layout h2{font-size:18px;margin-bottom:14px}
+ .admin-layout .btn,.admin-layout .btn.a{font-size:13px;line-height:18px;min-height:40px;padding:6px 12px}
+ .admin-layout .actions{gap:8px}
+ .admin-layout .input,.admin-layout textarea,.admin-layout select{font-size:16px}
+ .admin-layout .admin-toolbar{padding:10px;gap:10px;margin-bottom:12px}
+ .admin-toolbar-actions{width:100%;gap:8px;justify-content:space-between;flex-wrap:nowrap;min-width:0}
+ .admin-clock{display:none}
+ .admin-layout .toolbar-item{font-size:12px;gap:5px;min-height:44px}
+ .toolbar-circle{width:28px;height:28px}
+ .toolbar-user{min-width:0}
+ .toolbar-user summary strong{max-width:80px;overflow:hidden;text-overflow:ellipsis}
+ .admin-layout #participantes .table{display:block;width:100%;font-size:13px}
+ .admin-layout #participantes .table tbody{display:block;width:100%}
+ .admin-layout #participantes .table tr:first-child{display:none}
+ .admin-layout #participantes .table tr:not(:first-child){display:block;margin:0 0 12px;border:1px solid var(--giro-border);border-radius:8px;padding:10px;min-width:0}
+ .admin-layout #participantes .table td{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px;align-items:start;padding:5px 0;border:0;overflow-wrap:anywhere;min-width:0}
+ .admin-layout #participantes .table td::before{content:attr(data-label);font-weight:700;color:var(--giro-muted)}
+ .admin-layout #participantes .table td.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border-top:1px solid var(--giro-selected);margin-top:8px;padding-top:10px}
+ .admin-layout #participantes .table td.actions::before{display:none}
+ .admin-layout #participantes .actions form{min-width:0;width:100%;margin:0}
+ .admin-layout #participantes .actions .btn{width:100%;max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:40px;padding:6px 8px}
+}
+</style>'''
  return style+'<div class="admin-layout">'+menu+body+qr_popup+'</div>'+script
 
 @app.route('/admin')
@@ -311,7 +338,7 @@ def painel():
  def delete_participant_form(p):
   if session.get('role')!='admin': return ''
   return f'''<form method="post" action="/admin/p/{p['id']}/delete" onsubmit="return confirm('Excluir este participante? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf" value="{csrf()}"><input type="hidden" name="cid" value="{x['id']}"><button class="btn red">Excluir</button></form>'''
- rows=''.join(f'''<tr><td>{p['name']}</td><td>{p['company']}</td><td>{'🏆' if p['winner'] else '—'}</td><td>{'Bloqueado' if p['blocked'] else ('Elegível' if not p['winner'] else 'Sorteado')}</td><td class="actions"><form method="post" action="/admin/p/{p['id']}/block"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Desbloquear' if p['blocked'] else 'Bloquear'}</button></form><form method="post" action="/admin/p/{p['id']}/again"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Não repetir' if p['allow_again'] else 'Pode repetir'}</button></form><form method="post" action="/admin/p/{p['id']}/reenter"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn a">Recolocar</button></form>{delete_participant_form(p)}</td></tr>''' for p in ps)
+ rows=''.join(f'''<tr><td data-label="Nome">{p['name']}</td><td data-label="Empresa">{p['company']}</td><td data-label="Ganhou">{'🏆' if p['winner'] else '—'}</td><td data-label="Status">{'Bloqueado' if p['blocked'] else ('Elegível' if not p['winner'] else 'Sorteado')}</td><td class="actions" data-label="Ações"><form method="post" action="/admin/p/{p['id']}/block"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Desbloquear' if p['blocked'] else 'Bloquear'}</button></form><form method="post" action="/admin/p/{p['id']}/again"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Não repetir' if p['allow_again'] else 'Pode repetir'}</button></form><form method="post" action="/admin/p/{p['id']}/reenter"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn a">Recolocar</button></form>{delete_participant_form(p)}</td></tr>''' for p in ps)
  camps=''.join(f'<option value="{z["id"]}" {"selected" if z["active"] else ""}>{z["name"]}</option>' for z in cs)
  def draw_history(d):
   winners=json.loads(d['winner_details'] or '[]')
