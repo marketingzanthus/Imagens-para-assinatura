@@ -58,6 +58,13 @@ def init():
   if not pwd: c.close(); raise RuntimeError('ADMIN_PASSWORD obrigatória para inicializar administrador.')
   c.execute('insert into users(username,password,name,role) values(?,?,?,?)',(user,generate_password_hash(pwd),'Administrador','admin'))
   print(f'INITIAL_ADMIN_USER={user}',flush=True); print('INITIAL_ADMIN_PASSWORD_CONFIGURED=true',flush=True)
+ # Capture available names for older draws without changing existing snapshots.
+ for d in c.execute('select id,campaign_id,winner_ids from draws where winner_details is null').fetchall():
+  details=[]
+  for pid in json.loads(d['winner_ids'] or '[]'):
+   winner=c.execute('select id,name,company from participants where id=? and campaign_id=?',(pid,d['campaign_id'])).fetchone()
+   details.append(dict(winner) if winner else {'id':pid,'name':'Participante não disponível','company':''})
+  c.execute('update draws set winner_details=? where id=?',(json.dumps(details,ensure_ascii=False),d['id']))
  c.commit(); c.close()
 
 def audit(action,details='',conn=None):
@@ -171,7 +178,11 @@ def painel():
   return f'''<form method="post" action="/admin/p/{p['id']}/delete" onsubmit="return confirm('Excluir este participante? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf" value="{csrf()}"><input type="hidden" name="cid" value="{x['id']}"><button class="btn red">Excluir</button></form>'''
  rows=''.join(f'''<tr><td>{p['name']}</td><td>{p['company']}</td><td>{'🏆' if p['winner'] else '—'}</td><td>{'Bloqueado' if p['blocked'] else ('Elegível' if not p['winner'] else 'Sorteado')}</td><td class="actions"><form method="post" action="/admin/p/{p['id']}/block"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Desbloquear' if p['blocked'] else 'Bloquear'}</button></form><form method="post" action="/admin/p/{p['id']}/again"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{'Não repetir' if p['allow_again'] else 'Pode repetir'}</button></form><form method="post" action="/admin/p/{p['id']}/reenter"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn a">Recolocar</button></form>{delete_participant_form(p)}</td></tr>''' for p in ps)
  camps=''.join(f'<option value="{z["id"]}" {"selected" if z["active"] else ""}>{z["name"]}</option>' for z in cs)
- hist=''.join(f'<li>{d["drawn_at"]} — operador {d["operator"]}</li>' for d in ds) or '<li>Sem sorteios ainda.</li>'
+ def draw_history(d):
+  winners=json.loads(d['winner_details'] or '[]')
+  rows=''.join(f'<li><strong>{escape(w["name"])}</strong> — {escape(w.get("company") or "Empresa não informada")}</li>' for w in winners)
+  return f'<li style="margin-bottom:18px"><strong>{escape(d["drawn_at"] or "")}</strong><br>Usuário que realizou o sorteio: <strong>{escape(d["operator"] or "Não informado")}</strong><br>Ganhador(es):<ul>{rows or "<li>Dados dos ganhadores não disponíveis.</li>"}</ul></li>'
+ hist=''.join(draw_history(d) for d in ds) or '<li>Sem sorteios ainda.</li>'
  userrows=''.join(f'''<tr><td>{u["name"]}</td><td>{u["username"]}</td><td>{"Administrador" if u["role"]=="admin" else "Usuário"}</td><td>{("Troca de senha pendente" if u["force_password_change"] else "Ativo") if u["active"] else "Inativo"}</td><td class="actions"><form method="post" action="/admin/user/{u['id']}/toggle"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{"Desativar" if u["active"] else "Ativar"}</button></form><form method="post" action="/admin/user/{u['id']}/password"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" style="width:150px;display:inline" type="password" name="password" placeholder="Nova senha" minlength="8" required><button class="btn gray">Trocar senha</button></form></td></tr>''' for u in us)
  auditrows=''.join(f'<tr><td>{a["created_at"]}</td><td>{a["username"]}</td><td>{a["action"]}</td><td>{a["details"]}</td></tr>' for a in logs) or '<tr><td colspan="4">Sem alterações registradas.</td></tr>'
  useradmin=(f'''<div class="card"><h2>Usuários do painel</h2><form method="post" action="/admin/user"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome" required><input class="input" name="username" placeholder="Usuário" required><select name="role" class="input" required><option value="user">Usuário</option><option value="admin">Administrador</option></select><input class="input" type="password" name="password" placeholder="Senha temporária (mínimo 8 caracteres)" minlength="8" required><label style="display:block;margin:5px 0 15px"><input type="checkbox" name="force_password_change" checked> Exigir troca de senha no primeiro acesso</label><button class="btn">Criar usuário</button></form><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></div>''' if session.get('role')=='admin' else '')
@@ -342,7 +353,8 @@ def draw():
  if len(pool)<n: c.close();flash('Participantes elegíveis insuficientes.');return redirect('/admin')
  ws=random.SystemRandom().sample(pool,n); ids=[w['id'] for w in ws]
  for i in ids:c.execute('update participants set winner=1 where id=?',(i,))
- c.execute('insert into draws(campaign_id,drawn_at,winner_ids,operator) values(?,?,?,?)',(x['id'],now(),json.dumps(ids),session['user']));audit('SORTEIO_REALIZADO',f'{x["name"]}: {len(ids)} ganhador(es)',c);c.commit();c.close(); seconds=max(3,min(int(request.form.get('seconds','10')),60)); return redirect('/admin/draw-screen?ids='+','.join(map(str,ids))+'&seconds='+str(seconds))
+ details=json.dumps([{'id':w['id'],'name':w['name'],'company':w['company']} for w in ws],ensure_ascii=False)
+ c.execute('insert into draws(campaign_id,drawn_at,winner_ids,operator,winner_details) values(?,?,?,?,?)',(x['id'],now(),json.dumps(ids),session['user'],details));audit('SORTEIO_REALIZADO',f'{x["name"]}: {len(ids)} ganhador(es)',c);c.commit();c.close(); seconds=max(3,min(int(request.form.get('seconds','10')),60)); return redirect('/admin/draw-screen?ids='+','.join(map(str,ids))+'&seconds='+str(seconds))
 @app.route('/admin/draw-screen')
 @admin
 def screen():
@@ -379,4 +391,3 @@ def qr(cid):
 
 init()
 if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')))
-

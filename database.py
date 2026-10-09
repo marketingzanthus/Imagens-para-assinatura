@@ -58,9 +58,13 @@ def create_schema(connection):
     for table, columns in TABLES.items():
         connection.execute(f'CREATE TABLE IF NOT EXISTS {table}(id {identity},{columns})')
     if postgres:
+        connection.execute('ALTER TABLE draws ADD COLUMN IF NOT EXISTS winner_details TEXT')
         connection.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS force_password_change INTEGER DEFAULT 0')
         connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user'")
     else:
+        draw_columns = [r['name'] for r in connection.execute('PRAGMA table_info(draws)').fetchall()]
+        if 'winner_details' not in draw_columns:
+            connection.execute('ALTER TABLE draws ADD COLUMN winner_details TEXT')
         columns = [r['name'] for r in connection.execute('PRAGMA table_info(users)').fetchall()]
         if 'force_password_change' not in columns:
             connection.execute('ALTER TABLE users ADD COLUMN force_password_change INTEGER DEFAULT 0')
