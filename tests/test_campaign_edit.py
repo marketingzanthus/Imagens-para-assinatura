@@ -2,6 +2,8 @@ import os
 import sys
 import tempfile
 import unittest
+import io
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -46,6 +48,18 @@ class CampaignEdit(unittest.TestCase):
   self.assertIn('Novo &#34;nome&#34;',html)
   client.post('/admin/campaign/999/update',data=values)
   self.assertEqual(c.execute('select count(*) from campaigns').fetchone()[0],1)
+  with patch.object(module.media_storage,'save') as upload:
+   client.post('/admin/campaign/1/update',data={**values,'image':(io.BytesIO(b'png'),'new.png')})
+   upload.assert_called_once()
+  updated_image=c.execute('select image from campaigns where id=1').fetchone()[0]
+  self.assertTrue(updated_image.endswith('.png'))
+  self.assertNotEqual(updated_image,'existing.png')
+  client.post('/admin/campaign/1/update',data=values)
+  self.assertEqual(c.execute('select image from campaigns where id=1').fetchone()[0],updated_image)
+  with patch.object(module.media_storage,'save',side_effect=RuntimeError('unavailable')):
+   client.post('/admin/campaign/1/update',data={**values,'name':'Must not change','image':(io.BytesIO(b'png'),'new.png')})
+  self.assertEqual(c.execute('select name from campaigns where id=1').fetchone()[0],values['name'])
+  self.assertEqual(c.execute('select image from campaigns where id=1').fetchone()[0],updated_image)
   c.close()
 
 if __name__=='__main__':
