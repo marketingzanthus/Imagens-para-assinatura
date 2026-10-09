@@ -134,7 +134,7 @@ def cadastro(cid):
  return layout('Cadastro',body)
 
 @app.route('/sucesso/<int:cid>')
-def sucesso(cid): return layout('Sucesso',f'<div class="wrap"><div class="card" style="text-align:center"><h1 style="font-size:clamp(24px,5vw,28px);line-height:1.25">✅ Cadastro realizado!</h1><p>Você já esta participando do nosso Sorteio.<br><span style="display:block;margin-top:8px">Boa Sorte!</span></p><a class="btn" href="/cadastro/{cid}">Voltar</a><div style="max-width:435px;margin:24px auto 0"><h2 style="font-size:22px;font-weight:400;margin:0 0 8px">Patrocinadores</h2><div style="position:relative;overflow:hidden;aspect-ratio:984/292"><img src="/static/patrocinadores-hd.png" alt="Laurenti, Elgin, Custom Brasil, Super Troco e Fiserv" width="984" height="422" style="display:block;width:100%;height:auto;position:absolute;top:0;transform:translateY(-30.8057%)"></div></div></div></div>')
+def sucesso(cid): return layout('Sucesso',f'<div class="wrap"><div class="card" style="text-align:center"><h1 style="font-size:clamp(24px,5vw,28px);line-height:1.25">✅ Cadastro realizado!</h1><p>Você já esta participando do nosso Sorteio.<br><span style="display:block;margin-top:8px">Boa Sorte!</span></p><a class="btn" href="/cadastro/{cid}">Voltar</a><div style="max-width:435px;margin:24px auto 0"><h2 style="font-size:22px;font-weight:400;margin:0 0 8px">Patrocinadores</h2><div style="position:relative;overflow:hidden;aspect-ratio:1080/260"><img src="/static/patrocinadores-atualizados.png" alt="Laurenti, Elgin, Fiserv, Custom Brasil, Super Troco e Transire" width="1080" height="1440" style="display:block;width:100%;height:auto;position:absolute;top:0;transform:translateY(-42.0139%)"></div></div></div></div>')
 
 @app.route('/admin/login',methods=['GET','POST'])
 def login():
@@ -391,3 +391,4 @@ def qr(cid):
 
 init()
 if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')))
+
