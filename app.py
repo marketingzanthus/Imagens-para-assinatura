@@ -125,6 +125,8 @@ GIRO_PUBLIC_CSS += '\n.trophy{display:flex;justify-content:center;margin-bottom:
 
 GIRO_PUBLIC_CSS += '\n.winner-confetti{position:absolute;inset:-100px -15vw -220px;overflow:visible;z-index:10;pointer-events:none}\n.winner-confetti i{left:50%;top:45%;width:10px;height:18px;opacity:0}\n.winner-area.show .winner-confetti i{animation:confettiBurst 3.5s cubic-bezier(.12,.7,.3,1) var(--delay) both}\n@keyframes confettiBurst{0%{opacity:1;transform:translate(0,0) rotate(0) scale(.4)}25%{opacity:1;transform:translate(var(--dx),var(--dy)) rotate(var(--r)) scale(1)}75%{opacity:1}100%{opacity:0;transform:translate(var(--dx),calc(var(--dy) + 450px)) rotate(calc(var(--r) + 540deg)) scale(.7)}}\n@media(prefers-reduced-motion:reduce){.winner-area.show .winner-confetti i{animation:none}}\n'
 
+GIRO_PUBLIC_CSS += "\n.prize-show .raffle-label,.prize-show h1,.prize-show h2{text-align:center}\n"
+
 def layout(title,body):
  msgs=''.join(f'<div class="flash">{m}</div>' for m in __import__('flask').get_flashed_messages())
  return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;700&amp;display=swap" rel="stylesheet"><style>{CSS}{GIRO_PUBLIC_CSS}</style></head><body>{msgs}{body}</body></html>'''
