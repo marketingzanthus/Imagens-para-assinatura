@@ -320,6 +320,22 @@ def admin_navigation(body):
  .admin-layout #participantes .actions .btn{width:100%;max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:40px;padding:6px 8px}
 }
 </style>'''
+ script+=r'''<script>(function(){
+ var layout=document.querySelector('.admin-layout');
+ var nav=layout.querySelector('.admin-menu nav');
+ function collapseMobileMenu(){
+  if(!window.matchMedia('(max-width:900px)').matches)return;
+  layout.classList.add('menu-collapsed');
+  var toggle=layout.querySelector('.admin-side-toggle');
+  toggle.setAttribute('aria-expanded','false');
+  toggle.setAttribute('aria-label','Expandir menu lateral');
+ }
+ nav.addEventListener('click',function(event){
+  var link=event.target.closest('a');
+  if(link&&nav.contains(link))collapseMobileMenu();
+ });
+ if(location.hash)collapseMobileMenu();
+})();</script>'''
  return style+'<div class="admin-layout">'+menu+body+qr_popup+'</div>'+script
 
 @app.route('/admin')
