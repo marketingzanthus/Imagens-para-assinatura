@@ -255,6 +255,44 @@ def admin_navigation(body):
  qr_popup='''<dialog id="qr-popup" aria-labelledby="qr-popup-title"><div class="qr-popup-heading"><h2 id="qr-popup-title">QR Code da campanha</h2><button type="button" class="qr-popup-close" aria-label="Fechar QR Code">×</button></div><p id="qr-popup-campaign"></p><img id="qr-popup-image" alt="QR Code da campanha" width="320" height="320"><p class="muted">Escaneie para abrir o cadastro desta campanha.</p><button type="button" class="btn gray qr-popup-close">Fechar</button></dialog>'''
  style+='''<style>#qr-popup{width:400px;max-width:calc(100vw - 32px);max-height:90vh;overflow:auto;border:1px solid #cfd0da;border-radius:8px;padding:24px;color:#111119;font-family:'Figtree',sans-serif}#qr-popup::backdrop{background:rgba(17,17,25,.5)}.qr-popup-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.qr-popup-heading h2{margin:0;font-size:20px}.qr-popup-heading button{border:0;background:transparent;font-size:28px;cursor:pointer;color:#505255;padding:0 4px}#qr-popup-campaign{font-weight:700;font-size:16px}#qr-popup-image{display:block;max-width:100%;height:auto;margin:16px auto}#qr-popup p.muted{font-size:14px}</style>'''
  script+=r'''<script>(function(){var popup=document.getElementById('qr-popup');document.querySelector('.admin-layout').addEventListener('click',function(e){var link=e.target.closest('a');if(!link||!/^\/qr\/\d+\.png$/.test(link.getAttribute('href')||''))return;e.preventDefault();var row=link.closest('tr');var name=link.dataset.campaign||(row?row.querySelector('td').textContent:'Campanha');document.getElementById('qr-popup-campaign').textContent=name;document.getElementById('qr-popup-image').src=link.getAttribute('href');var dropdown=link.closest('details');if(dropdown)dropdown.open=false;popup.showModal();});popup.querySelectorAll('.qr-popup-close').forEach(function(button){button.addEventListener('click',function(){popup.close();});});popup.addEventListener('click',function(e){if(e.target!==popup)return;var r=popup.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)popup.close();});})();</script>'''
+ style+=r'''<style>.admin-layout .toolbar-dropdown{position:fixed;right:auto;top:auto;width:260px;min-width:0;max-width:calc(100vw - 24px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.admin-layout .toolbar-dropdown a{overflow-wrap:anywhere;min-height:44px}.toolbar-qr .qr-campaigns{min-width:0;max-width:calc(100vw - 24px)}#qr-popup-campaign{overflow-wrap:anywhere}@supports(height:100dvh){#qr-popup{max-height:calc(100dvh - 32px)}}</style>'''
+ script+=r'''<script>(function(){
+ var menus=Array.from(document.querySelectorAll('.admin-toolbar details.toolbar-user'));
+ function closeMenus(except){menus.forEach(function(menu){if(menu!==except)menu.open=false;});}
+ function positionMenu(menu){
+  var panel=menu.querySelector('.toolbar-dropdown'),button=menu.querySelector('summary');
+  if(!panel||!button||!menu.open)return;
+  var viewport=window.visualViewport;
+  var left=viewport?viewport.offsetLeft:0,top=viewport?viewport.offsetTop:0;
+  var width=viewport?viewport.width:document.documentElement.clientWidth;
+  var height=viewport?viewport.height:window.innerHeight;
+  var bounds=button.getBoundingClientRect(),gap=12;
+  panel.style.width=Math.min(260,width-gap*2)+'px';
+  panel.style.maxWidth=(width-gap*2)+'px';
+  var panelWidth=panel.getBoundingClientRect().width;
+  panel.style.left=Math.max(left+gap,Math.min(bounds.left,left+width-panelWidth-gap))+'px';
+  var y=Math.max(top+gap,Math.min(bounds.bottom+8,top+height-60));
+  panel.style.top=y+'px';
+  panel.style.maxHeight=Math.max(44,top+height-y-gap)+'px';
+ }
+ menus.forEach(function(menu){
+  menu.querySelector('summary').addEventListener('click',function(){closeMenus(menu);});
+  menu.addEventListener('toggle',function(){if(menu.open)positionMenu(menu);});
+ });
+ document.addEventListener('pointerdown',function(event){
+  menus.forEach(function(menu){if(menu.open&&!menu.contains(event.target))menu.open=false;});
+ },true);
+ document.addEventListener('click',function(event){
+  if(event.target.closest('.toolbar-dropdown a'))closeMenus();
+ });
+ document.addEventListener('keydown',function(event){
+  if(event.key==='Escape')menus.forEach(function(menu){if(menu.open){menu.open=false;menu.querySelector('summary').focus();}});
+ });
+ window.addEventListener('hashchange',function(){closeMenus();});
+ window.addEventListener('resize',function(){menus.forEach(positionMenu);});
+ window.addEventListener('scroll',function(event){if(event.target instanceof Element&&event.target.closest('.toolbar-dropdown'))return;closeMenus();},true);
+ if(window.visualViewport)window.visualViewport.addEventListener('resize',function(){menus.forEach(positionMenu);});
+})();</script>'''
  return style+'<div class="admin-layout">'+menu+body+qr_popup+'</div>'+script
 
 @app.route('/admin')
