@@ -133,6 +133,26 @@ GIRO_PUBLIC_CSS += '\n.raffle-stage:not(.register-stage)::before{inset:-60px;bac
 
 GIRO_PUBLIC_CSS += '\n.register-stage{animation:circuitTrail 45s linear infinite;background-repeat:repeat,no-repeat}\n@keyframes circuitTrail{from{background-position:0 0,center top}to{background-position:240px -240px,center top}}\n'
 
+
+GIRO_PUBLIC_CSS += '''
+.campaigns-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:30px}
+.campaigns-header .raffle-brand{margin:0;min-width:0}
+.campaign-admin-link{color:#3b45f2;font-size:14px;line-height:1.5;min-height:44px;display:inline-flex;align-items:center;white-space:nowrap}
+.campaign-admin-link:focus-visible{outline:3px solid #cadaff;outline-offset:4px;border-radius:4px}
+.campaigns-intro{text-align:center;margin-bottom:28px;color:#2c2f62}
+.campaigns-intro h1{font-size:40px;line-height:1.2;margin:12px 0;font-weight:700}
+.campaigns-intro p{margin:0;line-height:1.5}
+.campaigns-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:24px}
+.campaigns-grid:has(>.campaign-card:only-child){max-width:640px;margin:auto}
+.campaign-card{display:flex;flex-direction:column;align-items:stretch;min-width:0;text-align:center}
+.campaign-card .campaign-title{font-size:32px;line-height:1.2;color:#2c2f62;margin:16px 0;overflow-wrap:anywhere}
+.campaign-card .prizeimg{height:330px;width:100%;object-fit:contain;margin:8px 0 20px}
+.campaign-card .campaign-prize{font-size:24px;line-height:1.3;color:#2c2f62;margin:12px 0 24px;overflow-wrap:anywhere}
+.campaign-card .raffle-button{margin-top:auto;display:flex;align-items:center;justify-content:center;width:100%;text-align:center;line-height:1.4}
+.campaign-empty{text-align:center}
+@media(max-width:600px){.campaigns-header{flex-wrap:wrap;gap:8px;margin-bottom:24px}.campaigns-header .public-logo{width:220px}.campaign-admin-link{font-size:13px}.campaigns-intro h1{font-size:32px}.campaigns-intro p{font-size:14px}.campaign-card .campaign-title{font-size:28px}.campaign-card .campaign-prize{font-size:21px}.campaign-card .prizeimg{height:auto;max-height:330px}.campaigns-stage .prize-show{padding:20px}.campaigns-grid{gap:16px}}
+'''
+
 def layout(title,body):
  msgs=''.join(f'<div class="flash">{m}</div>' for m in __import__('flask').get_flashed_messages())
  return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;700&amp;display=swap" rel="stylesheet"><style>{CSS}{GIRO_PUBLIC_CSS}</style></head><body>{msgs}{body}</body></html>'''
@@ -152,9 +172,10 @@ def up(n): return media_storage.serve(n,UPLOAD)
 @app.route('/')
 def home():
  c=db(); cs=c.execute('select * from campaigns where active=1 order by id desc').fetchall(); c.close()
- if not cs: return layout('Sorteio Zanthus | Neos','<div class="wrap"><div class="brand">Zanthus <b>| Neos</b></div><div class="card"><h1>Nenhuma campanha ativa no momento.</h1></div></div>')
- cards=''.join(f'''<div class="card"><h2>{x["title"]}</h2>{f'<img class="prizeimg" src="/uploads/{x["image"]}">' if x["image"] else ''}<p><b>Prêmio:</b> {x["prize"]}</p><a class="btn a" href="/cadastro/{x["id"]}">QUERO PARTICIPAR →</a></div>''' for x in cs)
- return layout('Sorteio Zanthus | Neos',f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><a href="/admin/login">Área administrativa</a></div><h1>Campanhas ativas</h1><div class="grid">{cards}</div></div>''')
+ cards=''.join(f'''<section class="prize-show campaign-card"><div class="raffle-label">SORTEIO ESPECIAL</div><h2 class="campaign-title">{escape(x["title"])}</h2>{f'<img class="prizeimg" src="/uploads/{escape(x["image"])}" alt="Prêmio da campanha" loading="lazy">' if x["image"] else ''}<div class="prize-caption">VOCÊ PODE GANHAR</div><h3 class="campaign-prize">{escape(x["prize"])}</h3><a class="raffle-button" href="/cadastro/{x["id"]}">Quero participar →</a></section>''' for x in cs)
+ if not cs: cards='<section class="prize-show campaign-empty"><h2>Nenhuma campanha ativa no momento.</h2><p>Em breve teremos novas oportunidades para participar.</p></section>'
+ body=f'''<div class="raffle-stage register-stage campaigns-stage"><div class="particles"></div><div class="register-shell"><header class="campaigns-header"><div class="raffle-brand"><div class="public-logo"><img src="/static/zanthus-neos-transparente.png" alt="Zanthus Tecnologia de Resultados | Neos" width="1920" height="1080"></div></div><a class="campaign-admin-link" href="/admin/login">Área administrativa</a></header><div class="campaigns-intro"><div class="raffle-label">PARTICIPE E CONCORRA</div><h1>Campanhas ativas</h1><p>Escolha uma campanha e faça seu cadastro. Boa sorte!</p></div><div class="campaigns-grid">{cards}</div></div></div>'''
+ return layout('Sorteio Zanthus | Neos',body)
 
 @app.route('/cadastro')
 def cadastro_padrao():
