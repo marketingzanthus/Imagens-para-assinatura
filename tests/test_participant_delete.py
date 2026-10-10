@@ -19,7 +19,7 @@ class ParticipantDelete(unittest.TestCase):
   client.post('/admin/p/50/delete',data={**data,'cid':'999'})
   self.assertIsNotNone(c.execute('select * from participants where id=50').fetchone())
   result=client.post('/admin/p/50/delete',data=data)
-  self.assertEqual(result.location,'/admin?cid=1')
+  self.assertEqual(result.location,'/admin?cid=1#participantes')
   self.assertIsNone(c.execute('select * from participants where id=50').fetchone())
   self.assertEqual(c.execute("select count(*) from audit_logs where action='PARTICIPANTE_EXCLUIDO'").fetchone()[0],1)
   client.post('/admin/p/51/delete',data=data)

@@ -17,7 +17,7 @@ class CampaignDelete(unittest.TestCase):
   self.assertIsNotNone(c.execute('select * from campaigns where id=90').fetchone())
   client.post('/admin/campaign/1/delete',data={'csrf':'token'})
   self.assertIsNotNone(c.execute('select * from campaigns where id=1').fetchone())
-  self.assertEqual(client.post('/admin/campaign/90/delete',data={'csrf':'token'}).location,'/admin')
+  self.assertEqual(client.post('/admin/campaign/90/delete',data={'csrf':'token'}).location,'/admin#campanhas')
   for table in ('participants','draws'):
    self.assertEqual(c.execute(f'select count(*) from {table} where campaign_id=90').fetchone()[0],0)
   self.assertIsNone(c.execute('select * from campaigns where id=90').fetchone())

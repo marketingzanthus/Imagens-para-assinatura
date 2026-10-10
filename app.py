@@ -1,4 +1,5 @@
 import os, io, csv, json, random, secrets, sqlite3
+from urllib.parse import urlsplit, parse_qs, urlencode
 from database import connect, create_schema, insert_campaign, IntegrityError, DATABASE_URL
 import media_storage
 from markupsafe import escape
@@ -28,6 +29,42 @@ def require_durable_uploads():
   if file and file.filename:
    flash('O armazenamento permanente de imagens ainda precisa ser configurado. Envie a campanha sem imagem por enquanto.')
    return redirect('/admin')
+
+# Preserve the panel section after mutations, without changing login or draw redirects.
+@app.after_request
+def preserve_admin_location(response):
+ if request.method != 'POST' or not session.get('uid') or response.status_code not in (302, 303):
+  return response
+ target=urlsplit(response.headers.get('Location',''))
+ if target.scheme or target.netloc or target.path != '/admin':
+  return response
+ path=request.path
+ if path.startswith('/admin/user'): section='usuarios'
+ elif path.startswith('/admin/p/'): section='participantes'
+ elif path.endswith('/clear-participants'): section='excluir-participantes'
+ elif path in ('/admin/draw','/admin/reenter-all'): section='sorteio'
+ elif path.startswith('/admin/campaign'):
+  section='campanhas' if path.endswith(('/toggle','/delete')) else 'campanha'
+ else: return response
+ allowed={'campanha','campanhas','participantes','usuarios','sorteio','excluir-participantes'}
+ origin=request.form.get('_return_section')
+ if origin in allowed: section=origin
+ query=parse_qs(target.query)
+ cid=request.form.get('_return_cid',type=int) or request.form.get('cid',type=int)
+ # A newly created/edited campaign is the authoritative selection.
+ if section=='campanha' or not cid:
+  try: cid=int(query.get('cid',[cid])[0])
+  except (TypeError,ValueError): cid=None
+ if not cid and path.startswith('/admin/p/'):
+  c=db()
+  participant=c.execute('select campaign_id from participants where id=?',(request.view_args.get('i'),)).fetchone()
+  c.close()
+  if participant: cid=participant['campaign_id']
+ if cid and not camp(cid): cid=None
+ params={'cid':cid} if cid else {}
+ if path=='/admin/campaign' and not query.get('cid'): params['nova']=1
+ response.headers['Location']='/admin'+('?' + urlencode(params) if params else '')+'#'+section
+ return response
 
 def db():
  return connect(DB)
@@ -236,7 +273,9 @@ def mypassword():
 @app.route('/admin/logout')
 def logout(): session.clear(); return redirect('/')
 
-def admin_navigation(body):
+def admin_navigation(body, selected_cid=None):
+ if selected_cid:
+  body=body.replace('<input type="hidden" name="csrf"',f'<input type="hidden" name="_return_cid" value="{selected_cid}"><input type="hidden" name="csrf"')
  items=[('INÍCIO','#inicio'),('SORTEIO','#sorteio'),('PARTICIPANTES','#participantes'),('NOVA CAMPANHA','/admin?nova=1#campanha'),('CAMPANHAS CADASTRADAS','#campanhas'),('USUÁRIOS DO PAINEL','#usuarios'),('HISTÓRICO DE SORTEIOS','#historico-sorteios'),('HISTÓRICO DE ALTERAÇÕES','#historico-alteracoes'),('EXCLUIR PARTICIPANTES','#excluir-participantes')]
  if session.get('role')!='admin': items=[item for item in items if item[1] not in ('#usuarios','#excluir-participantes')]
  icons={
@@ -260,7 +299,7 @@ def admin_navigation(body):
  menu=f'<aside class="admin-menu"><div class="admin-side-brand"><img src="/static/zanthus-neos-logo.png" alt="Zanthus | Neos" class="admin-nav-logo"></div><button class="admin-side-toggle" aria-label="Recolher menu lateral" aria-expanded="true" onclick="var closed=document.querySelector(\'.admin-layout\').classList.toggle(\'menu-collapsed\');this.setAttribute(\'aria-expanded\',String(!closed));this.setAttribute(\'aria-label\',closed?\'Expandir menu lateral\':\'Recolher menu lateral\');"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><nav aria-label="Funcionalidades do painel">{links}</nav></aside>'
  home='''<section id="inicio"><h1>Sorteador de brindes</h1></section>'''
  body=body.replace('<h1>Painel do Sorteio</h1>',home+'<h1>Painel do Sorteio</h1>')
- script='''<style>.admin-layout [hidden]{display:none!important}.admin-menu a[aria-current="page"]{background:#14b8a6;color:#042f2e}</style><script>(function(){function show(){var main=document.querySelector('.admin-layout>.wrap');var id=location.hash.slice(1)||'inicio';var selected=document.getElementById(id);if(!selected||!main.contains(selected)){id='inicio';selected=document.getElementById(id);}Array.from(main.children).forEach(function(el){var keep=el.classList.contains('top')||el===selected||(id==='sorteio'&&el.classList.contains('grid'));el.hidden=!keep;});main.querySelectorAll('details.card').forEach(function(el){el.open=el===selected;});document.querySelectorAll('.admin-menu a').forEach(function(a){var match=a.hash==='#'+id;if(match)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});window.scrollTo(0,0);requestAnimationFrame(function(){window.scrollTo(0,0);});}window.addEventListener('hashchange',show);window.addEventListener('load',show);show();})();</script>'''
+ script='''<style>.admin-layout [hidden]{display:none!important}.admin-menu a[aria-current="page"]{background:#14b8a6;color:#042f2e}</style><script>(function(){document.addEventListener('submit',function(event){var form=event.target;if(!form.closest('.admin-layout'))return;var section=form.closest('.card[id]');if(!section)return;var input=form.querySelector('[name="_return_section"]');if(!input){input=document.createElement('input');input.type='hidden';input.name='_return_section';form.appendChild(input);}input.value=section.id;});function show(){var main=document.querySelector('.admin-layout>.wrap');var id=location.hash.slice(1)||'inicio';var selected=document.getElementById(id);if(!selected||!main.contains(selected)){id='inicio';selected=document.getElementById(id);}Array.from(main.children).forEach(function(el){var keep=el.classList.contains('top')||el===selected||(id==='sorteio'&&el.classList.contains('grid'));el.hidden=!keep;});main.querySelectorAll('details.card').forEach(function(el){el.open=el===selected;});document.querySelectorAll('.admin-menu a').forEach(function(a){var match=a.hash==='#'+id;if(match)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});window.scrollTo(0,0);requestAnimationFrame(function(){window.scrollTo(0,0);});}window.addEventListener('hashchange',show);window.addEventListener('load',show);show();})();</script>'''
  header_start=body.index('<div class="top">')
  header_end=body.index('</div></div>',header_start)+len('</div></div>')
  current_campaign=camp(request.args.get('cid',type=int)) or camp()
@@ -392,7 +431,7 @@ def painel():
   userrows=''.join(f'''<tr><td>{u["name"]}</td><td>{u["username"]}</td><td>{"Administrador" if u["role"]=="admin" else "Usuário"}</td><td>{("Troca de senha pendente" if u["force_password_change"] else "Ativo") if u["active"] else "Inativo"}</td><td>-</td></tr>''' for u in us)
   useradmin=(f'''<details class="card" id="usuarios"><summary style="cursor:pointer;font-size:20px;font-weight:700">Usuários do painel</summary><p class="muted">Crie uma campanha para liberar a operação do sorteio.</p><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></details>''' if session.get('role')=='admin' else '')
   create=f'''<div class="card" id="campanha"><h2>Nova campanha</h2><form method="post" enctype="multipart/form-data" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><textarea name="terms" placeholder="Termos"></textarea><label>Imagem do prêmio</label><input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"><label><input type="checkbox" name="active" checked> Criar campanha ativa</label><br><br><button class="btn">Criar campanha</button></form></div>'''
-  return layout('Admin',f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div>Olá, {session.get("user")} · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid">{create}{useradmin}</div></div>''')
+  return layout('Admin',admin_navigation(f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div>Olá, {session.get("user")} · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1>{create}<div class="card" id="campanhas"><h2>Campanhas cadastradas</h2><p>Nenhuma campanha cadastrada.</p><a class="btn" href="/admin?nova=1#campanha">Nova campanha</a></div>{useradmin}</div>'''))
  def delete_participant_form(p):
   if session.get('role')!='admin': return ''
   return f'''<form method="post" action="/admin/p/{p['id']}/delete" onsubmit="return confirm('Excluir este participante? Esta ação não pode ser desfeita.');"><input type="hidden" name="csrf" value="{csrf()}"><input type="hidden" name="cid" value="{x['id']}"><button class="btn red">Excluir</button></form>'''
@@ -412,7 +451,7 @@ def painel():
  create=f'''<div class="card" id="campanha"><h2>Nova campanha</h2><form method="post" enctype="multipart/form-data" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><textarea name="terms" placeholder="Termos"></textarea><label>Imagem do prêmio</label><input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"><label><input type="checkbox" name="active" checked> Criar campanha ativa</label><br><br><button class="btn">Criar campanha</button></form></div>'''
  campaign_form=create if request.args.get('nova')=='1' else edit
  clear_form=(f'''<div class="card" id="excluir-participantes"><h2>Limpar participantes desta campanha</h2><p>Exclui permanentemente os cadastros. O histórico de sorteios será mantido.</p><form method="post" action="/admin/campaign/{x['id']}/clear-participants" onsubmit="return confirm('Excluir permanentemente todos os participantes desta campanha? O histórico será mantido.');"><input type="hidden" name="csrf" value="{csrf()}"><label>Digite o nome da campanha para confirmar</label><input class="input" name="confirm_name" required placeholder="{escape(x['name'])}"><button class="btn red">Limpar participantes</button></form></div>''' if session.get('role')=='admin' else '')
- body=f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div><a href="/qr/{x['id']}.png">QR Code desta campanha</a> · <a href="/admin/export?cid={x['id']}">XLSX</a> · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid"><div class="card"><b>Participantes</b><div style="font-size:38px">{len(ps)}</div></div><div class="card"><b>Campanha selecionada</b><div>{x['name']}</div></div><div class="card"><b>Prêmio</b><div>{x['prize']}</div></div></div><div class="card" id="sorteio"><h2>Sorteio</h2><form method="post" action="/admin/draw"><input type="hidden" name="csrf" value="{csrf()}">{draw_campaign_field(cs,x)}<label>Quantidade de ganhadores</label><input class="input" type="number" min="1" max="20" value="1" name="count"><label>Segundos para revelar o resultado</label><input class="input" type="number" min="3" max="60" value="10" name="seconds"><button class="btn a">🎲 Iniciar sorteio</button></form><form method="post" action="/admin/reenter-all" style="margin-top:10px"><input type="hidden" name="csrf" value="{csrf()}"><input type="hidden" name="cid" value="{x['id']}"><button class="btn gray">↻ Recolocar ganhadores permitidos</button></form></div><div class="card" id="participantes"><h2>Participantes</h2><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Empresa</th><th>Ganhou</th><th>Status</th><th>Ações</th></tr>{rows}</table></div></div>{campaign_form}<div class="card" id="campanhas"><h2>Campanhas cadastradas</h2><a class="btn" href="/admin?nova=1#campanha">Nova campanha</a><div style="overflow:auto"><table class="table"><tr><th>Campanha</th><th>Status</th><th>Criada em</th><th>Ações</th></tr>{camprows}</table></div></div>{useradmin}<details class="card" id="historico-sorteios"><summary style="cursor:pointer;font-size:20px;font-weight:700">Histórico de sorteios</summary><ul>{hist}</ul></details><details class="card" id="historico-alteracoes"><summary style="cursor:pointer;font-size:20px;font-weight:700">Histórico de alterações</summary><p class="muted">Últimas 100 ações administrativas.</p><div style="overflow:auto"><table class="table"><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr>{auditrows}</table></div></details>{clear_form}</div>'''; return layout('Painel',admin_navigation(body))
+ body=f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div><a href="/qr/{x['id']}.png">QR Code desta campanha</a> · <a href="/admin/export?cid={x['id']}">XLSX</a> · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1><div class="grid"><div class="card"><b>Participantes</b><div style="font-size:38px">{len(ps)}</div></div><div class="card"><b>Campanha selecionada</b><div>{x['name']}</div></div><div class="card"><b>Prêmio</b><div>{x['prize']}</div></div></div><div class="card" id="sorteio"><h2>Sorteio</h2><form method="post" action="/admin/draw"><input type="hidden" name="csrf" value="{csrf()}">{draw_campaign_field(cs,x)}<label>Quantidade de ganhadores</label><input class="input" type="number" min="1" max="20" value="1" name="count"><label>Segundos para revelar o resultado</label><input class="input" type="number" min="3" max="60" value="10" name="seconds"><button class="btn a">🎲 Iniciar sorteio</button></form><form method="post" action="/admin/reenter-all" style="margin-top:10px"><input type="hidden" name="csrf" value="{csrf()}"><input type="hidden" name="cid" value="{x['id']}"><button class="btn gray">↻ Recolocar ganhadores permitidos</button></form></div><div class="card" id="participantes"><h2>Participantes</h2><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Empresa</th><th>Ganhou</th><th>Status</th><th>Ações</th></tr>{rows}</table></div></div>{campaign_form}<div class="card" id="campanhas"><h2>Campanhas cadastradas</h2><a class="btn" href="/admin?nova=1#campanha">Nova campanha</a><div style="overflow:auto"><table class="table"><tr><th>Campanha</th><th>Status</th><th>Criada em</th><th>Ações</th></tr>{camprows}</table></div></div>{useradmin}<details class="card" id="historico-sorteios"><summary style="cursor:pointer;font-size:20px;font-weight:700">Histórico de sorteios</summary><ul>{hist}</ul></details><details class="card" id="historico-alteracoes"><summary style="cursor:pointer;font-size:20px;font-weight:700">Histórico de alterações</summary><p class="muted">Últimas 100 ações administrativas.</p><div style="overflow:auto"><table class="table"><tr><th>Data/hora</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr>{auditrows}</table></div></details>{clear_form}</div>'''; return layout('Painel',admin_navigation(body,x['id']))
 
 @app.post('/admin/user')
 @admin_only
@@ -613,7 +652,7 @@ def draw():
 def screen():
  ids=[int(v) for v in request.args.get('ids','').split(',') if v.isdigit()]; seconds=max(3,min(request.args.get('seconds',10,type=int),60)); c=db(); q=','.join('?'*len(ids)); ws=c.execute(f'select * from participants where id in ({q})',ids).fetchall() if ids else []; c.close()
  cards=''.join(f'<div class="reveal-card"><div class="trophy" aria-label="Troféu"><svg viewBox="0 0 64 64" width="64" height="64" fill="none" aria-hidden="true"><path d="M20 10h24v16c0 12-6 18-12 18s-12-6-12-18V10Z" fill="#cadaff" stroke="#2c2f62" stroke-width="3"/><path d="M20 15H10v9c0 9 5 14 13 14M44 15h10v9c0 9-5 14-13 14M32 44v10M23 56h18" stroke="#2c2f62" stroke-width="3" stroke-linecap="round"/></svg></div><div class="winner-name">{w["name"]}</div><div class="winner-company">{w["company"]}</div></div>' for w in ws)
- body=f'''<div class="raffle-stage"><div class="particles"></div><div class="raffle-inner"><div class="raffle-brand"><div class="public-logo"><img src="/static/zanthus-neos-transparente.png" alt="Zanthus Tecnologia de Resultados | Neos" width="1920" height="1080"></div></div><div id="countArea"><div class="raffle-label">SORTEIO AO VIVO</div><h1>Prepare-se!</h1><p>O resultado será revelado em</p><div class="countdown-wrap"><div id="countdown" class="countdown">{seconds}</div><div class="spinner-ring"></div></div><div id="raffleMsg" class="raffle-msg">Embaralhando participantes...</div></div><div id="winnerArea" class="winner-area"><div class="raffle-label">RESULTADO DO SORTEIO</div><h1 class="congrats">O GANHADOR FOI!</h1>{cards}<a class="raffle-back" href="/admin">Voltar ao painel</a></div></div></div><script>let n={seconds};const el=document.getElementById('countdown'),msg=document.getElementById('raffleMsg');const timer=setInterval(()=>{{n--;el.textContent=n;if(n<=Math.ceil({seconds}/2))msg.textContent='Quase lá...';if(n<=3)msg.textContent='Preparando o resultado...';if(n<=0){{clearInterval(timer);document.getElementById('countArea').classList.add('fade-out');setTimeout(()=>{{document.getElementById('countArea').style.display='none';document.getElementById('winnerArea').classList.add('show')}},650)}}}},1000);</script>'''
+ body=f'''<div class="raffle-stage"><div class="particles"></div><div class="raffle-inner"><div class="raffle-brand"><div class="public-logo"><img src="/static/zanthus-neos-transparente.png" alt="Zanthus Tecnologia de Resultados | Neos" width="1920" height="1080"></div></div><div id="countArea"><div class="raffle-label">SORTEIO AO VIVO</div><h1>Prepare-se!</h1><p>O resultado será revelado em</p><div class="countdown-wrap"><div id="countdown" class="countdown">{seconds}</div><div class="spinner-ring"></div></div><div id="raffleMsg" class="raffle-msg">Embaralhando participantes...</div></div><div id="winnerArea" class="winner-area"><div class="raffle-label">RESULTADO DO SORTEIO</div><h1 class="congrats">O GANHADOR FOI!</h1>{cards}<a class="raffle-back" href="/admin?cid={ws[0]['campaign_id'] if ws else ''}#sorteio">Voltar ao painel</a></div></div></div><script>let n={seconds};const el=document.getElementById('countdown'),msg=document.getElementById('raffleMsg');const timer=setInterval(()=>{{n--;el.textContent=n;if(n<=Math.ceil({seconds}/2))msg.textContent='Quase lá...';if(n<=3)msg.textContent='Preparando o resultado...';if(n<=0){{clearInterval(timer);document.getElementById('countArea').classList.add('fade-out');setTimeout(()=>{{document.getElementById('countArea').style.display='none';document.getElementById('winnerArea').classList.add('show')}},650)}}}},1000);</script>'''
  return layout('Sorteio Zanthus | Neos',body)
 
 @app.route('/admin/export')

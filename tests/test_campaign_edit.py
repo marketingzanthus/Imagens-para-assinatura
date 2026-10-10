@@ -34,7 +34,7 @@ class CampaignEdit(unittest.TestCase):
   client.post('/admin/campaign/1/update',data={**values,'name':' '})
   self.assertEqual(dict(c.execute('select * from campaigns where id=1').fetchone()),before)
   response=client.post('/admin/campaign/1/update',data=values)
-  self.assertEqual(response.location,'/admin?cid=1')
+  self.assertEqual(response.location,'/admin?cid=1#campanha')
   after=dict(c.execute('select * from campaigns where id=1').fetchone())
   for key in ('id','active','image','created_at'): self.assertEqual(after[key],before[key])
   for key in ('name','title','prize','terms'): self.assertEqual(after[key],values[key])

@@ -55,7 +55,7 @@ class Integration(unittest.TestCase):
                 session['csrf']='test'
             return client.post(path,data={'csrf':'test',**values})
         response=post('/admin/campaign',name='Nova',title='Nova',prize='Kit',terms='Termos',active='on')
-        cid=int(response.location.split('=')[1]); self.assertEqual(cid,13)
+        cid=int(response.location.split('=')[1].split('#')[0]); self.assertEqual(cid,13)
         values=dict(name='Teste',whatsapp='11999999999',email='new@example.invalid',company='Empresa',consent='on')
         self.assertEqual(post(f'/cadastro/{cid}',**values).location,f'/sucesso/{cid}')
         post(f'/cadastro/{cid}',**values)
