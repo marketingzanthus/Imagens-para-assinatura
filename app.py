@@ -153,6 +153,18 @@ GIRO_PUBLIC_CSS += '''
 @media(max-width:600px){.campaigns-header{flex-wrap:wrap;gap:8px;margin-bottom:24px}.campaigns-header .public-logo{width:220px}.campaign-admin-link{font-size:13px}.campaigns-intro h1{font-size:32px}.campaigns-intro p{font-size:14px}.campaign-card .campaign-title{font-size:28px}.campaign-card .campaign-prize{font-size:21px}.campaign-card .prizeimg{height:auto;max-height:330px}.campaigns-stage .prize-show{padding:20px}.campaigns-grid{gap:16px}}
 '''
 
+
+GIRO_PUBLIC_CSS += '''
+.login-stage{align-items:center;padding:32px 0;min-height:100vh;min-height:100dvh}
+.login-shell{position:relative;z-index:2;width:min(430px,92vw)}
+.login-card .public-logo{width:240px;margin-bottom:28px}
+.login-card h1{color:#2c2f62;font-size:28px;line-height:1.25;font-weight:700;margin:0 0 24px}
+.login-card .input{font-size:16px;min-height:44px}
+.login-card .raffle-button{width:100%;margin-top:4px}
+@media(max-width:600px){.login-stage{padding:24px 0}.login-card{padding:24px}.login-card .public-logo{width:220px}.login-card h1{font-size:26px}}
+@media(prefers-reduced-motion:reduce){.login-stage{animation:none}}
+'''
+
 def layout(title,body):
  msgs=''.join(f'<div class="flash">{m}</div>' for m in __import__('flask').get_flashed_messages())
  return f'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;700&amp;display=swap" rel="stylesheet"><style>{CSS}{GIRO_PUBLIC_CSS}</style></head><body>{msgs}{body}</body></html>'''
@@ -209,7 +221,7 @@ def login():
    if ('force_password_change' in u.keys()) and u['force_password_change']: session['must_change_password']=1; return redirect('/admin/minha-senha')
    return redirect('/admin')
   flash('Usuário ou senha inválidos.')
- body='''<div class="login card"><div class="brand">Zanthus <b>| Neos</b></div><h1>Painel administrativo</h1><form method="post"><input class="input" name="username" placeholder="Usuário" required><input class="input" type="password" name="password" placeholder="Senha" required><button class="btn" style="width:100%">ENTRAR</button></form></div>'''; return layout('Login',body)
+ body='''<div class="raffle-stage register-stage login-stage"><div class="particles"></div><div class="login-shell"><section class="register-card login-card"><div class="public-logo"><img src="/static/zanthus-neos-transparente.png" alt="Zanthus Tecnologia de Resultados | Neos" width="1920" height="1080"></div><h1>Painel administrativo</h1><form method="post"><input class="input" name="username" placeholder="Usuário" aria-label="Usuário" autocomplete="username" required><input class="input" type="password" name="password" placeholder="Senha" aria-label="Senha" autocomplete="current-password" required><button class="raffle-button" type="submit">ENTRAR</button></form></section></div></div>'''; return layout('Login',body)
 @app.route('/admin/minha-senha',methods=['GET','POST'])
 @admin
 def mypassword():
