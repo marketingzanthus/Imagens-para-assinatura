@@ -30,6 +30,17 @@ def require_durable_uploads():
    flash('O armazenamento permanente de imagens ainda precisa ser configurado. Envie a campanha sem imagem por enquanto.')
    return redirect('/admin')
 
+@app.before_request
+def refresh_user_access():
+ if not session.get('uid'): return
+ c=db()
+ try: u=c.execute('select role,active from users where id=?',(session['uid'],)).fetchone()
+ finally: c.close()
+ if not u or not u['active']:
+  session.clear()
+  return redirect('/admin/login')
+ session['role']=u['role']
+
 # Preserve the panel section after mutations, without changing login or draw redirects.
 @app.after_request
 def preserve_admin_location(response):
@@ -380,16 +391,19 @@ def admin_navigation(body, selected_cid=None):
  .toolbar-circle{width:28px;height:28px}
  .toolbar-user{min-width:0}
  .toolbar-user summary strong{max-width:80px;overflow:hidden;text-overflow:ellipsis}
- .admin-layout :is(#participantes,#campanhas) .table{display:block;width:100%;font-size:13px}
- .admin-layout :is(#participantes,#campanhas) .table tbody{display:block;width:100%}
- .admin-layout :is(#participantes,#campanhas) .table tr:first-child{display:none}
- .admin-layout :is(#participantes,#campanhas) .table tr:not(:first-child){display:block;margin:0 0 12px;border:1px solid var(--giro-border);border-radius:8px;padding:10px;min-width:0}
- .admin-layout :is(#participantes,#campanhas) .table td{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px;align-items:start;padding:5px 0;border:0;overflow-wrap:anywhere;min-width:0}
- .admin-layout :is(#participantes,#campanhas) .table td::before{content:attr(data-label);font-weight:700;color:var(--giro-muted)}
- .admin-layout :is(#participantes,#campanhas) .table td.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border-top:1px solid var(--giro-selected);margin-top:8px;padding-top:10px}
- .admin-layout :is(#participantes,#campanhas) .table td.actions::before{display:none}
- .admin-layout :is(#participantes,#campanhas) .actions form{min-width:0;width:100%;margin:0}
- .admin-layout :is(#participantes,#campanhas) .actions .btn{width:100%;max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:40px;padding:6px 8px}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table{display:block;width:100%;font-size:13px}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table tbody{display:block;width:100%}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table tr:first-child{display:none}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table tr:not(:first-child){display:block;margin:0 0 12px;border:1px solid var(--giro-border);border-radius:8px;padding:10px;min-width:0}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table td{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px;align-items:start;padding:5px 0;border:0;overflow-wrap:anywhere;min-width:0}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table td::before{content:attr(data-label);font-weight:700;color:var(--giro-muted)}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table td.actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;border-top:1px solid var(--giro-selected);margin-top:8px;padding-top:10px}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .table td.actions::before{display:none}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .actions form{min-width:0;width:100%;margin:0}
+ .admin-layout :is(#participantes,#campanhas,#usuarios) .actions .btn{width:100%;max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:40px;padding:6px 8px}
+ .admin-layout #usuarios .actions .user-role-form,.admin-layout #usuarios .actions .user-password-form{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;align-items:center}
+ .admin-layout #usuarios .actions .input{width:100%;min-width:0;max-width:100%;margin:0;min-height:40px}
+
 }
 </style>'''
  script+=r'''<script>(function(){
@@ -419,6 +433,13 @@ def draw_campaign_field(campaigns,selected):
  if not selected['active']: options='<option value="" selected disabled>Selecione uma campanha ativa</option>'+options
  return f'''<label for="draw-campaign">Campanha para o sorteio</label><select id="draw-campaign" class="input" name="cid" required onchange="if(this.value)window.location.assign('/admin?cid='+encodeURIComponent(this.value)+'#sorteio');">{options}</select>'''
 
+def user_table_rows(users):
+ rows=[]
+ for u in users:
+  role_form=f'''<form class="user-role-form" method="post" action="/admin/user/{u['id']}/role"><input type="hidden" name="csrf" value="{csrf()}"><select class="input" name="role" aria-label="Perfil de {escape(u['username'])}"><option value="user" {'selected' if u['role']=='user' else ''}>Usuário</option><option value="admin" {'selected' if u['role']=='admin' else ''}>Admin</option></select><button class="btn gray">Salvar perfil</button></form>'''
+  rows.append(f'''<tr><td data-label="Nome">{escape(u["name"])}</td><td data-label="Usuário">{escape(u["username"])}</td><td data-label="Perfil">{"Admin" if u["role"]=="admin" else "Usuário"}</td><td data-label="Status">{("Troca de senha pendente" if u["force_password_change"] else "Ativo") if u["active"] else "Inativo"}</td><td class="actions" data-label="Ações">{role_form}<form method="post" action="/admin/user/{u['id']}/toggle"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{"Desativar" if u["active"] else "Ativar"}</button></form><form class="user-password-form" method="post" action="/admin/user/{u['id']}/password"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" type="password" name="password" aria-label="Nova senha de {escape(u['username'])}" placeholder="Nova senha" minlength="8" required><button class="btn gray">Trocar senha</button></form></td></tr>''')
+ return ''.join(rows)
+
 @app.route('/admin')
 @admin
 def painel():
@@ -428,7 +449,7 @@ def painel():
  ds=c.execute('select * from draws where campaign_id=? order by id desc limit 20',(x['id'],)).fetchall() if x else []
  us=c.execute('select id,username,name,active,force_password_change,role from users order by name,username').fetchall() if session.get('role')=='admin' else []; logs=c.execute('select * from audit_logs order by id desc limit 100').fetchall(); c.close()
  if not x:
-  userrows=''.join(f'''<tr><td>{u["name"]}</td><td>{u["username"]}</td><td>{"Administrador" if u["role"]=="admin" else "Usuário"}</td><td>{("Troca de senha pendente" if u["force_password_change"] else "Ativo") if u["active"] else "Inativo"}</td><td>-</td></tr>''' for u in us)
+  userrows=user_table_rows(us)
   useradmin=(f'''<details class="card" id="usuarios"><summary style="cursor:pointer;font-size:20px;font-weight:700">Usuários do painel</summary><p class="muted">Crie uma campanha para liberar a operação do sorteio.</p><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></details>''' if session.get('role')=='admin' else '')
   create=f'''<div class="card" id="campanha"><h2>Nova campanha</h2><form method="post" enctype="multipart/form-data" action="/admin/campaign"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome da campanha" required><input class="input" name="title" placeholder="Título da LP" required><input class="input" name="prize" placeholder="Prêmio" required><textarea name="terms" placeholder="Termos"></textarea><label>Imagem do prêmio</label><input class="input" type="file" name="image" accept="image/png,image/jpeg,image/webp,image/gif"><label><input type="checkbox" name="active" checked> Criar campanha ativa</label><br><br><button class="btn">Criar campanha</button></form></div>'''
   return layout('Admin',admin_navigation(f'''<div class="wrap"><div class="top"><div class="brand">Zanthus <b>| Neos</b></div><div>Olá, {session.get("user")} · <a href="/admin/logout">Sair</a></div></div><h1>Painel do Sorteio</h1>{create}<div class="card" id="campanhas"><h2>Campanhas cadastradas</h2><p>Nenhuma campanha cadastrada.</p><a class="btn" href="/admin?nova=1#campanha">Nova campanha</a></div>{useradmin}</div>'''))
@@ -442,7 +463,7 @@ def painel():
   rows=''.join(f'<li><strong>{escape(w["name"])}</strong> — {escape(w.get("company") or "Empresa não informada")}</li>' for w in winners)
   return f'<li style="margin-bottom:18px"><strong>{escape(d["drawn_at"] or "")}</strong><br>Usuário que realizou o sorteio: <strong>{escape(d["operator"] or "Não informado")}</strong><br>Ganhador(es):<ul>{rows or "<li>Dados dos ganhadores não disponíveis.</li>"}</ul></li>'
  hist=''.join(draw_history(d) for d in ds) or '<li>Sem sorteios ainda.</li>'
- userrows=''.join(f'''<tr><td>{u["name"]}</td><td>{u["username"]}</td><td>{"Administrador" if u["role"]=="admin" else "Usuário"}</td><td>{("Troca de senha pendente" if u["force_password_change"] else "Ativo") if u["active"] else "Inativo"}</td><td class="actions"><form method="post" action="/admin/user/{u['id']}/toggle"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{"Desativar" if u["active"] else "Ativar"}</button></form><form method="post" action="/admin/user/{u['id']}/password"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" style="width:150px;display:inline" type="password" name="password" placeholder="Nova senha" minlength="8" required><button class="btn gray">Trocar senha</button></form></td></tr>''' for u in us)
+ userrows=user_table_rows(us)
  auditrows=''.join(f'<tr><td>{a["created_at"]}</td><td>{a["username"]}</td><td>{a["action"]}</td><td>{a["details"]}</td></tr>' for a in logs) or '<tr><td colspan="4">Sem alterações registradas.</td></tr>'
  useradmin=(f'''<details class="card" id="usuarios"><summary style="cursor:pointer;font-size:20px;font-weight:700">Usuários do painel</summary><form method="post" action="/admin/user"><input type="hidden" name="csrf" value="{csrf()}"><input class="input" name="name" placeholder="Nome" required><input class="input" name="username" placeholder="Usuário" required><select name="role" class="input" required><option value="user">Usuário</option><option value="admin">Administrador</option></select><input class="input" type="password" name="password" placeholder="Senha temporária (mínimo 8 caracteres)" minlength="8" required><label style="display:block;margin:5px 0 15px"><input type="checkbox" name="force_password_change" checked> Exigir troca de senha no primeiro acesso</label><button class="btn">Criar usuário</button></form><div style="overflow:auto"><table class="table"><tr><th>Nome</th><th>Usuário</th><th>Perfil</th><th>Status</th><th>Ações</th></tr>{userrows}</table></div></details>''' if session.get('role')=='admin' else '')
  camprows=''.join(f'''<tr><td data-label="Campanha">{z["name"]}</td><td data-label="Status">{"Ativa" if z["active"] else "Inativa"}</td><td data-label="Criada em">{z["created_at"]}</td><td class="actions" data-label="Ações"><a class="btn gray" href="/admin?cid={z["id"]}#campanha">Gerenciar</a> <a class="btn a" href="/qr/{z["id"]}.png" target="_blank">QR Code</a><form method="post" action="/admin/campaign/{z["id"]}/toggle"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn gray">{"Desativar" if z["active"] else "Ativar"}</button></form>{"" if z["active"] else f'<form method="post" action="/admin/campaign/{z["id"]}/delete" onsubmit="return confirm(\'Excluir esta campanha e todos os participantes e sorteios dela? Esta ação não pode ser desfeita.\')"><input type="hidden" name="csrf" value="{csrf()}"><button class="btn red">Excluir</button></form>'}</td></tr>''' for z in cs)
@@ -465,6 +486,35 @@ def newuser():
   audit('USUARIO_CRIADO',f'{name} ({username})',c); c.commit(); flash('Usuário criado com sucesso.')
  except IntegrityError:
   flash('Esse nome de usuário já existe.')
+ finally: c.close()
+ return redirect('/admin')
+
+@app.post('/admin/user/<int:uid>/role')
+@admin_only
+def change_user_role(uid):
+ if not session.get('csrf') or not okcsrf():
+  flash('Sessão expirada. Atualize a página e tente novamente.'); return redirect('/admin')
+ role=request.form.get('role')
+ if role not in ('user','admin'):
+  flash('Selecione Usuário ou Admin.'); return redirect('/admin')
+ c=db()
+ try:
+  # Serialize privilege changes and recheck the acting administrator.
+  if DATABASE_URL: c.execute('SELECT pg_advisory_xact_lock(72631009)')
+  else: c.execute('BEGIN IMMEDIATE')
+  actor=c.execute('select role,active from users where id=?',(session['uid'],)).fetchone()
+  if not actor or not actor['active'] or actor['role']!='admin':
+   flash('Acesso restrito a administradores.'); return redirect('/admin')
+  u=c.execute('select * from users where id=?',(uid,)).fetchone()
+  if not u:
+   flash('Usuário não encontrado.'); return redirect('/admin')
+  if uid==session['uid'] and role!='admin':
+   flash('Peça a outro administrador para alterar seu perfil.'); return redirect('/admin')
+  if u['role']!=role:
+   c.execute('update users set role=? where id=?',(role,uid))
+   audit('USUARIO_PERFIL_ALTERADO',f"{u['username']}: {u['role']} -> {role}",c)
+   c.commit()
+  flash('Perfil atualizado com sucesso.')
  finally: c.close()
  return redirect('/admin')
 
@@ -683,4 +733,5 @@ def qr(cid):
 
 init()
 if __name__=='__main__': app.run(host='0.0.0.0',port=int(os.getenv('PORT','5000')))
+
 
